@@ -1,15 +1,46 @@
 from flask import Flask, request, jsonify
-import hmac, hashlib, time, requests, re
+import hmac, hashlib, time, requests, re, os, json
+from datetime import datetime
 
 app = Flask(__name__)
 
-import os
-API_KEY = os.getenv('API_KEY')
-API_SECRET = os.getenv('API_SECRET')
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
 BASE_URL = 'https://api.bitunix.com'
 
 POSITION_SIZE = 10  # dollars per entry
 LEVERAGE = 20
+MAX_DAILY_LOSS = 100  # Max loss in USD per day
+
+LOSS_LOG_FILE = "daily_loss_log.json"
+
+
+def get_today():
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+
+def read_loss_log():
+    if not os.path.exists(LOSS_LOG_FILE):
+        return {}
+    with open(LOSS_LOG_FILE, 'r') as f:
+        return json.load(f)
+
+
+def write_loss_log(log):
+    with open(LOSS_LOG_FILE, 'w') as f:
+        json.dump(log, f)
+
+
+def update_loss(amount):
+    log = read_loss_log()
+    today = get_today()
+    log[today] = log.get(today, 0) + amount
+    write_loss_log(log)
+
+
+def get_today_loss():
+    log = read_loss_log()
+    return log.get(get_today(), 0)
 
 
 def parse_signal(message):
@@ -73,6 +104,29 @@ def place_order(symbol, side, price, quantity, stop_loss, tp):
     return response.json()
 
 
+def update_stop_loss_to_entry(symbol, order_id, new_stop_price):
+    timestamp = time.strftime('%Y%m%d%H%M%S')
+    nonce = hashlib.md5(str(time.time()).encode()).hexdigest()[:32]
+
+    params = {
+        "apiKey": API_KEY,
+        "nonce": nonce,
+        "timestamp": timestamp
+    }
+
+    body = {
+        "orderId": order_id,
+        "stopLossPrice": new_stop_price
+    }
+
+    sign = generate_signature({**params, **body}, API_SECRET)
+    params['sign'] = sign
+
+    headers = {'Content-Type': 'application/json'}
+    response = requests.post(f"{BASE_URL}/api/v1/order/update", headers=headers, json=body, params=params)
+    return response.json()
+
+
 def calculate_zone_entries(acc_zone):
     top, bottom = acc_zone
     mid = (top + bottom) / 2
@@ -80,14 +134,16 @@ def calculate_zone_entries(acc_zone):
 
 
 def calculate_quantities(prices, direction):
-    # $10 at top, $10 at mid, $20 at bottom (in asset amount based on price)
-    multipliers = [10, 10, 20]
+    multipliers = [10, 10, 20]  # $ amounts
     return [round(m / p, 6) for m, p in zip(multipliers, prices)]
 
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
+        if get_today_loss() >= MAX_DAILY_LOSS:
+            return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
+
         data = request.get_json()
         message = data.get("message")
         symbol = data.get("symbol", "BTCUSDT").upper()
@@ -98,14 +154,28 @@ def webhook():
         quantities = calculate_quantities(acc_entries, direction)
 
         tp1 = parsed["take_profits"][0]
+        tp2 = parsed["take_profits"][1] if len(parsed["take_profits"]) > 1 else tp1
         stop_loss = parsed["stop_loss"]
+        entry_price = parsed["entry_price"]
 
         results = []
         for i in range(3):
-            tp_partial = tp1  # Could be made dynamic
             qty = quantities[i]
-            res = place_order(symbol, direction, acc_entries[i], qty, stop_loss, tp_partial)
+            entry = acc_entries[i]
+
+            res = place_order(symbol, direction, entry, qty, stop_loss, tp1)
             results.append(res)
+
+            if res.get("status") == "success" and res.get("data"):
+                order_id = res["data"].get("orderId")
+                if order_id:
+                    update_result = update_stop_loss_to_entry(symbol, order_id, entry_price)
+                    print(f"Stop loss updated for order {order_id}: {update_result}")
+                    print(f"Schedule remaining 30% to TP2 at {tp2}")
+
+            # Assume a worst-case loss for daily limit estimation
+            potential_loss = POSITION_SIZE if i < 2 else 2 * POSITION_SIZE
+            update_loss(potential_loss)
 
         return jsonify({"status": "success", "orders": results})
 
@@ -115,4 +185,3 @@ def webhook():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
-
