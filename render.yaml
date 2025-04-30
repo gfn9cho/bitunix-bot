@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: bitunix-webhook-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: API_KEY
+        value: 6436c7161462f773663c814ffcf5518a
+      - key: API_SECRET
+        value: 63bcd55f946bc81e7b8ff08f5d4570a4
+
