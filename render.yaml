@@ -1,13 +1,16 @@
 services:
   - type: web
-    name: bitunix-webhook-bot
+    name: bitunix-bot
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python app.py
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4
     envVars:
       - key: API_KEY
-        value: 6436c7161462f773663c814ffcf5518a
+        value: ${API_KEY}
       - key: API_SECRET
-        value: 63bcd55f946bc81e7b8ff08f5d4570a4
-
+        value: ${API_SECRET}
+      - key: EMAIL_SENDER
+        value: ${EMAIL_SENDER}
+      - key: EMAIL_PASSWORD
+        value: ${EMAIL_PASSWORD}
