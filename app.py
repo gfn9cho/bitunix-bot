@@ -144,6 +144,7 @@ def webhook():
         if get_today_loss() >= MAX_DAILY_LOSS:
             return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
 
+            print("Raw data received:", request.data, flush=True)
             print("Raw data received:", request.get_json(), flush=True)
             data = request.get_json()
 
