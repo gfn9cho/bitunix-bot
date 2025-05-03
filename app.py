@@ -123,6 +123,8 @@ def calculate_quantities(prices, direction):
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    raw_data = request.get_data(as_text=True)
+    logger.info(f"Raw webhook data: {raw_data}")
     try:
         if get_today_loss() >= MAX_DAILY_LOSS:
             logger.warning("Max daily loss reached. Blocking trades.")
