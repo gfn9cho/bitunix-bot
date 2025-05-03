@@ -75,8 +75,8 @@ def calculate_quantities(prices, direction):
     multipliers = [10, 10, 20]  # $ amounts
     return [round(m / p, 6) for m, p in zip(multipliers, prices)]
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
+@app.route('/webhook/<symbol>', methods=['POST'])
+def webhook(symbol):
     raw_data = request.get_data(as_text=True)
     logger.info(f"Raw webhook data: {raw_data}")
     logger.info(f"Request headers: {dict(request.headers)}")
@@ -97,12 +97,8 @@ def webhook():
             alert_name = "unknown"
             symbol = None
 
-        # Try to extract symbol from message if not provided
-        if not symbol:
-            symbol_match = re.search(r"\b([A-Z]{3,5}USDT)\b", message.upper())
-            symbol = symbol_match.group(1) if symbol_match else "BTCUSDT"
-            logger.info(f"Symbol extracted from message: {symbol}")
-
+            # Override symbol with URL parameter
+        symbol = symbol.upper()
         logger.info(f"Parsed data: {data}")
 
         symbol = symbol.upper()
