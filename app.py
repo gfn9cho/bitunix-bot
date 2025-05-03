@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify
 import hmac, hashlib, time, requests, re, os, json
 from datetime import datetime
+import logging
+
 
 app = Flask(__name__)
 
@@ -13,6 +15,13 @@ LEVERAGE = 20
 MAX_DAILY_LOSS = 100  # Max loss in USD per day
 
 LOSS_LOG_FILE = "daily_loss_log.json"
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+logger.info("Webhook triggered")
+
 
 
 def get_today():
@@ -144,9 +153,7 @@ def webhook():
         if get_today_loss() >= MAX_DAILY_LOSS:
             return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
 
-            print("Raw data received:", request.data, flush=True)
-            print("Raw data received:", request.get_json(), flush=True)
-            data = request.get_json()
+        data = request.get_json()
 
         if not isinstance(data, dict):
             return jsonify({"status": "error", "message": "Invalid JSON body"}), 400
@@ -155,8 +162,8 @@ def webhook():
         if not message:
             return jsonify({"status": "error", "message": "Missing 'message' in payload"}), 400
 
-        print("Raw data received:", request.data, flush=True)
-        print("Parsed JSON:", request.get_json(), flush=True)
+        logger.info("Raw data received:", data)
+        logger.info("Parsed JSON:", request.get_json())
         symbol = data.get("symbol", "BTCUSDT").upper()
         parsed = parse_signal(message)
 
