@@ -125,6 +125,8 @@ def calculate_quantities(prices, direction):
 def webhook():
     raw_data = request.get_data(as_text=True)
     logger.info(f"Raw webhook data: {raw_data}")
+    logger.info(f"Request headers: {dict(request.headers)}")
+
     try:
         if get_today_loss() >= MAX_DAILY_LOSS:
             logger.warning("Max daily loss reached. Blocking trades.")
@@ -132,8 +134,16 @@ def webhook():
 
         data = request.get_json()
         message = data.get("message")
-        symbol = data.get("symbol", "BTCUSDT").upper()
-        logger.info(f"Received signal for {symbol}: {message}")
+        alert_name = data.get("alert_name", "unknown")
+
+        symbol = data.get("symbol")
+        if not symbol:
+            referer = request.headers.get("Referer", "")
+            logger.warning(f"No symbol in payload. Referer: {referer}")
+            symbol = "BTCUSDT"  # fallback default
+
+        symbol = symbol.upper()
+        logger.info(f"Received alert '{alert_name}' for {symbol}: {message}")
 
         parsed = parse_signal(message)
 
