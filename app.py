@@ -171,7 +171,8 @@ def webhook():
             qty = quantities[i]
             entry = acc_entries[i]
 
-            res = place_order(symbol, direction, entry, qty, stop_loss, tp1)
+            #res = place_order(symbol, direction, entry, qty, stop_loss, tp1)
+            res = ""
             results.append(res)
 
             if res.get("status") == "success" and res.get("data"):
