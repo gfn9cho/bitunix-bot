@@ -132,15 +132,24 @@ def webhook():
             logger.warning("Max daily loss reached. Blocking trades.")
             return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
 
-        data = request.get_json()
-        message = data.get("message")
-        alert_name = data.get("alert_name", "unknown")
+        try:
+            data = request.get_json(force=True)
+            message = data.get("message", "")
+            alert_name = data.get("alert_name", "unknown")
+            symbol = data.get("symbol")
+        except Exception:
+            data = {}
+            message = raw_data.strip()
+            alert_name = "unknown"
+            symbol = None
 
-        symbol = data.get("symbol")
+        # Try to extract symbol from message if not provided
         if not symbol:
-            referer = request.headers.get("Referer", "")
-            logger.warning(f"No symbol in payload. Referer: {referer}")
-            symbol = "BTCUSDT"  # fallback default
+            symbol_match = re.search(r"\b([A-Z]{3,5}USDT)\b", message.upper())
+            symbol = symbol_match.group(1) if symbol_match else "BTCUSDT"
+            logger.info(f"Symbol extracted from message: {symbol}")
+
+        logger.info(f"Parsed data: {data}")
 
         symbol = symbol.upper()
         logger.info(f"Received alert '{alert_name}' for {symbol}: {message}")
