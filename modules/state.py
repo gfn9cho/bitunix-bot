@@ -2,7 +2,7 @@
 import json
 import os
 
-STATE_FILE = "position_state.json"
+STATE_FILE = "/var/data/position_state.json"
 
 try:
     with open(STATE_FILE, "r") as f:

@@ -14,3 +14,7 @@ services:
         value: ${EMAIL_SENDER}
       - key: EMAIL_PASSWORD
         value: ${EMAIL_PASSWORD}
+    disk:
+      name: bot-data
+      mountPath: /var/data
+      sizeGB: 1
