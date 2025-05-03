@@ -66,52 +66,6 @@ def parse_signal(message):
         "accumulation_zone": [acc_top, acc_bottom]
     }
 
-def generate_signature(secret, timestamp, nonce, body_json):
-    pre_sign = f"{timestamp}{nonce}{body_json}"
-    return hmac.new(secret.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
-
-def place_order(symbol, side, price, qty, stop_loss, tp1):
-    nonce = str(int(time.time() * 1000))
-    timestamp = nonce
-
-    body = {
-        "symbol": symbol,
-        "side": side,
-        "price": str(price),
-        "qty": str(qty),
-        "orderType": "LIMIT",
-        "effect": "GTC",
-        "reduceOnly": False,
-        "tpPrice": str(tp1),
-        "tpStopType": "MARK_PRICE",
-        "tpOrderType": "LIMIT",
-        "tpOrderPrice": str(tp1),
-        "slPrice": str(stop_loss),
-        "slStopType": "MARK_PRICE",
-        "slOrderType": "LIMIT",
-        "slOrderPrice": str(stop_loss)
-    }
-
-    body_json = json.dumps(body, separators=(',', ':'))
-    signature = generate_signature(API_SECRET, timestamp, nonce, body_json)
-
-    headers = {
-        "api-key": API_KEY,
-        "sign": signature,
-        "nonce": nonce,
-        "timestamp": timestamp,
-        "Content-Type": "application/json"
-    }
-
-    try:
-        response = requests.post(f"{BASE_URL}/api/v1/futures/trade/place_order", headers=headers, data=body_json)
-        response.raise_for_status()
-        logger.info(f"Order placed: {body}")
-        return response.json()
-    except Exception as e:
-        logger.error(f"Error placing order for entry {price}: {str(e)}")
-        return {"status": "error", "message": str(e)}
-
 def calculate_zone_entries(acc_zone):
     top, bottom = acc_zone
     mid = (top + bottom) / 2
@@ -163,18 +117,19 @@ def webhook():
         tp1 = parsed["take_profits"][0]
         stop_loss = parsed["stop_loss"]
 
-        results = []
-        for i in range(3):
-            qty = quantities[i]
-            entry = acc_entries[i]
+        # Commented out API calls for now
+        # results = []
+        # for i in range(3):
+        #     qty = quantities[i]
+        #     entry = acc_entries[i]
 
-            res = place_order(symbol, direction, entry, qty, stop_loss, tp1)
-            results.append(res)
+        #     res = place_order(symbol, direction, entry, qty, stop_loss, tp1)
+        #     results.append(res)
 
-            potential_loss = POSITION_SIZE if i < 2 else 2 * POSITION_SIZE
-            update_loss(potential_loss)
+        #     potential_loss = POSITION_SIZE if i < 2 else 2 * POSITION_SIZE
+        #     update_loss(potential_loss)
 
-        return jsonify({"status": "success", "orders": results})
+        return jsonify({"status": "parsed", "symbol": symbol, "direction": direction})
 
     except Exception as e:
         logger.exception("Error in webhook handler")
