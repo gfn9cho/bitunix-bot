@@ -152,8 +152,8 @@ def webhook():
         if not message:
             return jsonify({"status": "error", "message": "Missing 'message' in payload"}), 400
 
-        print("Raw data received:", request.data)
-        print("Parsed JSON:", request.get_json())
+        print("Raw data received:", request.data, flush=True)
+        print("Parsed JSON:", request.get_json(), flush=True)
         symbol = data.get("symbol", "BTCUSDT").upper()
         parsed = parse_signal(message)
 
