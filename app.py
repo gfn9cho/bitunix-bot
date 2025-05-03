@@ -145,7 +145,15 @@ def webhook():
             return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
 
         data = request.get_json()
+        if not isinstance(data, dict):
+            return jsonify({"status": "error", "message": "Invalid JSON body"}), 400
+
         message = data.get("message")
+        if not message:
+            return jsonify({"status": "error", "message": "Missing 'message' in payload"}), 400
+
+        print("Raw data received:", request.data)
+        print("Parsed JSON:", request.get_json())
         symbol = data.get("symbol", "BTCUSDT").upper()
         parsed = parse_signal(message)
 
