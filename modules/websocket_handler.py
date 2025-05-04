@@ -5,21 +5,34 @@ import time
 import hmac
 import hashlib
 import logging
-from datetime import datetime
 import requests
+from datetime import datetime
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger, error_logger, trade_logger
-from modules.state import save_position_state
-from modules.state import position_state
+from modules.state import position_state, save_position_state
+
 
 def start_websocket_listener():
     def on_open(ws):
-        logger.info("WebSocket opened. Sending subscription request.")
-        payload = {
+        logger.info("WebSocket opened. Sending login request.")
+
+        timestamp = str(int(time.time() * 1000))
+        pre_sign = timestamp + "GET" + "/user/verify"
+        signature = hmac.new(API_SECRET.encode(), pre_sign.encode(), hashlib.sha256).hexdigest()
+
+        auth_payload = {
+            "op": "login",
+            "args": [API_KEY, timestamp, signature]
+        }
+        ws.send(json.dumps(auth_payload))
+        logger.info("Login payload sent.")
+
+        subscribe_payload = {
             "op": "subscribe",
             "args": ["futures.position", "futures.tp_sl", "futures.order"]
         }
-        ws.send(json.dumps(payload))
+        ws.send(json.dumps(subscribe_payload))
+        logger.info("Subscription payload sent.")
 
     def on_message(ws, message):
         try:
@@ -33,7 +46,7 @@ def start_websocket_listener():
 
         except Exception as e:
             error_logger.error(json.dumps({"timestamp": datetime.utcnow().isoformat(), "error": str(e)}))
-            logger.error(f"WebSocket TP handler error: {str(e)}")
+            logger.error(f"WebSocket message handler error: {str(e)}")
 
     def handle_tp_sl(data):
         tp_event = data.get("data", {})
@@ -112,7 +125,7 @@ def start_websocket_listener():
     while True:
         try:
             ws = websocket.WebSocketApp(
-                "wss://fapi.bitunix.com/ws",
+                "wss://fapi.bitunix.com/private/",
                 on_open=on_open,
                 on_message=on_message,
                 on_error=on_error,

@@ -3,10 +3,60 @@ import json
 import re
 from datetime import datetime
 from modules.logger_config import logger
+from modules.config import LOSS_LOG_FILE
 
 
 import os
-LOSS_LOG_FILE = os.getenv("LOSS_LOG_FILE", "/var/data/daily_loss_log.json")
+#LOSS_LOG_FILE = os.getenv("LOSS_LOG_FILE", "/var/data/daily_loss_log.json")
+import time
+import hmac
+import hashlib
+import requests
+import json
+from modules.config import API_KEY, API_SECRET, BASE_URL
+from modules.logger_config import logger
+
+def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20):
+    timestamp = str(int(time.time() * 1000))
+    nonce = timestamp
+
+    order_data = {
+        "symbol": symbol,
+        "price": str(price),
+        "vol": str(qty),
+        "side": side,  # "BUY" or "SELL"
+        "type": order_type,  # "LIMIT" or "MARKET"
+        "open_type": "ISOLATED",
+        "position_id": 0,
+        "leverage": leverage,
+        "external_oid": str(int(time.time() * 1000)),
+        "stop_loss_price": "",
+        "take_profit_price": "",
+        "position_mode": "ONE_WAY"
+    }
+
+    body_json = json.dumps(order_data, separators=(',', ':'))
+    pre_sign = f"{timestamp}{nonce}{body_json}"
+    signature = hmac.new(API_SECRET.encode(), pre_sign.encode(), hashlib.sha256).hexdigest()
+
+    headers = {
+        "Content-Type": "application/json",
+        "api-key": API_KEY,
+        "sign": signature,
+        "timestamp": timestamp,
+        "nonce": nonce
+    }
+
+    url = f"{BASE_URL}/api/v1/futures/trade/place_order"
+    try:
+        response = requests.post(url, headers=headers, data=body_json)
+        response.raise_for_status()
+        logger.info(f"Order placed successfully: {response.json()}")
+        return response.json()
+    except Exception as e:
+        logger.error(f"Error placing order: {e}")
+        return None
+
 
 def get_today():
     return datetime.utcnow().strftime("%Y-%m-%d")
@@ -14,8 +64,15 @@ def get_today():
 def read_loss_log():
     if not os.path.exists(LOSS_LOG_FILE):
         return {}
-    with open(LOSS_LOG_FILE, 'r') as f:
-        return json.load(f)
+    try:
+        with open(LOSS_LOG_FILE, 'r') as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        logger.warning(f"{LOSS_LOG_FILE} is empty or invalid. Resetting.")
+        with open(LOSS_LOG_FILE, "w") as wf:
+            json.dump({}, wf)
+    return {}
+
 
 def write_loss_log(log):
     with open(LOSS_LOG_FILE, 'w') as f:
@@ -29,8 +86,9 @@ def update_loss(amount):
 
 def get_today_loss():
     log = read_loss_log()
-    today_loss = log.get(get_today(), 0)
-    logger.info(f"[LOSS LOG] Path: {LOSS_LOG_FILE}, Today's Loss: {today_loss}")
+    today = get_today()
+    today_loss = log.get(today, 0)
+    logger.info(f"[LOSS CHECK] Path: {LOSS_LOG_FILE}, Log: {log}, Today's Loss: {today_loss}")
     return today_loss
 
 

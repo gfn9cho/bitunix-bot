@@ -1,25 +1,27 @@
 from flask import request, jsonify
 from datetime import datetime
-import hmac, hashlib, time, requests, json, logging, re
-from modules.utils import parse_signal, calculate_zone_entries, calculate_quantities, update_loss, get_today_loss
-from modules.config import API_KEY, API_SECRET, BASE_URL, POSITION_SIZE, LEVERAGE, MAX_DAILY_LOSS
-from modules.logger_config import logger, trade_logger, error_logger, reversal_logger
-from modules.state import save_position_state
-
-from modules.state import position_state
+import logging
+from modules.utils import parse_signal, get_today_loss
+from modules.config import MAX_DAILY_LOSS
+from modules.logger_config import logger, error_logger, trade_logger, reversal_logger
+from modules.state import position_state, save_position_state
 
 def webhook_handler(symbol):
     raw_data = request.get_data(as_text=True)
     logger.info(f"Raw webhook data: {raw_data}")
-    #logger.info(f"Request headers: {dict(request.headers)}")
+    logger.info(f"Request headers: {dict(request.headers)}")
 
     try:
-        if get_today_loss() >= MAX_DAILY_LOSS:
-            logger.info(f"MAX_DAILY_LOSS = {MAX_DAILY_LOSS}")
-            logger.info(f"get_today_loss() = {get_today_loss()}")
+        # Read today's loss only once
+        today_loss = get_today_loss()
+        logger.info(f"[LOSS GUARD] Today: {today_loss} / Limit: {MAX_DAILY_LOSS}")
+
+        if today_loss >= MAX_DAILY_LOSS:
             logger.warning("Max daily loss reached. Blocking trades.")
-            save_position_state()
-        return jsonify({"status": "blocked", "message": "Max daily loss reached", "max daily loss": {MAX_DAILY_LOSS}, "todays loss": {get_today_loss()}}), 403
+            return jsonify({
+                "status": "blocked",
+                "message": "Max daily loss reached"
+            }), 403
 
         try:
             data = request.get_json(force=True)
@@ -37,8 +39,15 @@ def webhook_handler(symbol):
         logger.info(f"Received alert '{alert_name}' for {symbol}: {message}")
 
         parsed = parse_signal(message)
-        # TODO: Add order execution logic
+
+        position_state[symbol] = {
+            "step": 0,
+            "tps": parsed["take_profits"],
+            "direction": parsed["direction"],
+            "filled_orders": set()
+        }
         save_position_state()
+
         return jsonify({
             "status": "parsed",
             "symbol": symbol,
@@ -48,5 +57,4 @@ def webhook_handler(symbol):
 
     except Exception as e:
         logger.exception("Error in webhook handler")
-        save_position_state()
         return jsonify({"status": "error", "message": str(e)}), 500
