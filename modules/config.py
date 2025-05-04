@@ -8,4 +8,4 @@ POSITION_SIZE = 10  # dollars per entry
 LEVERAGE = 20
 MAX_DAILY_LOSS = 100  # Max loss in USD per day
 
-LOSS_LOG_FILE = "daily_loss_log.json"
+LOSS_LOG_FILE = "/var/data/daily_loss_log.json"

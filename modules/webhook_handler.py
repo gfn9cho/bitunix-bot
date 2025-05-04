@@ -11,9 +11,11 @@ from modules.state import position_state
 def webhook_handler(symbol):
     raw_data = request.get_data(as_text=True)
     logger.info(f"Raw webhook data: {raw_data}")
-    logger.info(f"Request headers: {dict(request.headers)}")
+    #logger.info(f"Request headers: {dict(request.headers)}")
 
     try:
+        logger.info("today's loss", get_today_loss())
+        logger.info("MAX_DAILY_LOSS", MAX_DAILY_LOSS)
         if get_today_loss() >= MAX_DAILY_LOSS:
             logger.warning("Max daily loss reached. Blocking trades.")
             save_position_state()
