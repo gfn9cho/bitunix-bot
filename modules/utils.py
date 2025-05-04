@@ -3,7 +3,8 @@ import json
 import re
 from datetime import datetime
 
-LOSS_LOG_FILE = "daily_loss_log.json"
+import os
+LOSS_LOG_FILE = os.getenv("LOSS_LOG_FILE", "/var/data/daily_loss_log.json")
 
 def get_today():
     return datetime.utcnow().strftime("%Y-%m-%d")
