@@ -14,9 +14,9 @@ def webhook_handler(symbol):
     #logger.info(f"Request headers: {dict(request.headers)}")
 
     try:
-        logger.info("today's loss", get_today_loss())
-        logger.info("MAX_DAILY_LOSS", MAX_DAILY_LOSS)
         if get_today_loss() >= MAX_DAILY_LOSS:
+            logger.info(f"MAX_DAILY_LOSS = {MAX_DAILY_LOSS}")
+            logger.info(f"get_today_loss() = {get_today_loss()}")
             logger.warning("Max daily loss reached. Blocking trades.")
             save_position_state()
         return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
