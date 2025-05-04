@@ -2,6 +2,8 @@ import os
 import json
 import re
 from datetime import datetime
+from modules.logger_config import logger
+
 
 import os
 LOSS_LOG_FILE = os.getenv("LOSS_LOG_FILE", "/var/data/daily_loss_log.json")
@@ -27,7 +29,10 @@ def update_loss(amount):
 
 def get_today_loss():
     log = read_loss_log()
-    return log.get(get_today(), 0)
+    today_loss = log.get(get_today(), 0)
+    logger.info(f"[LOSS LOG] Path: {LOSS_LOG_FILE}, Today's Loss: {today_loss}")
+    return today_loss
+
 
 def parse_signal(message):
     lines = message.split('\n')
