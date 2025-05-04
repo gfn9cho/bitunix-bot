@@ -19,7 +19,7 @@ def webhook_handler(symbol):
             logger.info(f"get_today_loss() = {get_today_loss()}")
             logger.warning("Max daily loss reached. Blocking trades.")
             save_position_state()
-        return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
+        return jsonify({"status": "blocked", "message": "Max daily loss reached", "max daily loss": {MAX_DAILY_LOSS}, "todays loss": {get_today_loss()}}), 403
 
         try:
             data = request.get_json(force=True)
