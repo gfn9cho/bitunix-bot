@@ -34,12 +34,12 @@ def webhook_handler(symbol):
         symbol_qty = (payload_symbol or symbol or "BTCUSDT").upper()
         if "_" in symbol_qty:
             symbol, qty_str = symbol_qty.split("_", 1)
-        try:
-            override_qty = float(qty_str)
-            logger.info(f"[SYMBOL_QTY] Parsed symbol: {symbol}, Custom qty override: {override_qty}")
-        except ValueError:
-            override_qty = None
-            logger.warning(f"[SYMBOL_QTY] Invalid quantity format in symbol: {symbol_qty}, ignoring override.")
+            try:
+                override_qty = float(qty_str)
+                logger.info(f"[SYMBOL_QTY] Parsed symbol: {symbol}, Custom qty override: {override_qty}")
+            except ValueError:
+                override_qty = None
+                logger.warning(f"[SYMBOL_QTY] Invalid quantity format in symbol: {symbol_qty}, ignoring override.")
         else:
             symbol = symbol_qty
             override_qty = None
