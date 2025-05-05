@@ -13,6 +13,8 @@ from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger, error_logger
 from modules.state import position_state, save_position_state
 
+__all__ = ["start_websocket_listener", "handle_tp_sl"]
+
 def start_websocket_listener():
     def on_open(ws):
         logger.info("WebSocket opened. Sending login request.")
@@ -62,115 +64,6 @@ def start_websocket_listener():
             error_logger.error(json.dumps({"timestamp": datetime.utcnow().isoformat(), "error": str(e)}))
             logger.error(f"WebSocket message handler error: {str(e)}")
 
-    def handle_tp_sl(data):
-        tp_event = data.get("data", {})
-        tp_price_hit = float(tp_event.get("triggerPrice", 0))
-        symbol = tp_event.get("symbol", "BTCUSDT")
-
-        logger.info(f"TP trigger detected for {symbol} at price: {tp_price_hit}")
-        state = position_state.get(symbol, {})
-        tps = state.get("tps", [])
-        step = state.get("step", 0)
-
-        if not tps or step >= len(tps):
-            logger.warning(f"No TP state for {symbol}. Skipping.")
-            return
-
-        new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
-        next_step = step + 1
-        new_tp = tps[next_step] if next_step < len(tps) else None
-
-        logger.info(f"Step {step} hit. New SL: {new_sl}, Next TP: {new_tp}")
-
-        # Cancel all limit orders if TP1 is hit
-        if step == 0:
-            try:
-                random_bytes = secrets.token_bytes(32)
-                nonce = base64.b64encode(random_bytes).decode('utf-8')
-                timestamp = str(int(time.time() * 1000))
-                body_json = json.dumps({"symbol": symbol}, separators=(',', ':'))
-                digest_input = nonce + timestamp + API_KEY + body_json
-                digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
-                sign_input = digest + API_SECRET
-                signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
-
-                headers = {
-                    "api-key": API_KEY,
-                    "sign": signature,
-                    "nonce": nonce,
-                    "timestamp": timestamp,
-                    "Content-Type": "application/json"
-                }
-
-                cancel_resp = requests.post(
-                    f"{BASE_URL}/api/v1/futures/trade/cancel_all_orders",
-                    headers=headers,
-                    data=body_json
-                )
-                cancel_resp.raise_for_status()
-                logger.info(f"[LIMIT ORDERS CANCELLED] {cancel_resp.json()}")
-            except Exception as cancel_err:
-                logger.error(f"[CANCEL LIMIT ORDERS FAILED] {str(cancel_err)}")
-
-        if new_tp:
-            modify_body = {
-                "symbol": symbol,
-                "tpTriggerPrice": str(new_tp),
-                "tpTriggerType": "MARKET_PRICE",
-                "slTriggerPrice": str(new_sl),
-                "slTriggerType": "MARKET_PRICE"
-            }
-
-            body_json = json.dumps(modify_body, separators=(',', ':'))
-            random_bytes = secrets.token_bytes(32)
-            nonce = base64.b64encode(random_bytes).decode('utf-8')
-            timestamp = str(int(time.time() * 1000))
-
-            digest_input = nonce + timestamp + API_KEY + body_json
-            digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
-            sign_input = digest + API_SECRET
-            signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
-
-            headers = {
-                "api-key": API_KEY,
-                "sign": signature,
-                "nonce": nonce,
-                "timestamp": timestamp,
-                "Content-Type": "application/json"
-            }
-
-            try:
-                response = requests.post(
-                    f"{BASE_URL}/api/v1/futures/position/modify_tp_sl",
-                    headers=headers,
-                    data=body_json
-                )
-                response.raise_for_status()
-                logger.info(f"[TP/SL MODIFIED] {response.json()}")
-            except Exception as e:
-                logger.error(f"[TP/SL MODIFY FAILED] {str(e)}")
-
-        state["step"] = next_step
-        save_position_state()
-
-    def handle_order(data):
-        order_event = data.get("data", {})
-        order_status = order_event.get("status")
-        order_id = order_event.get("orderId")
-        symbol = order_event.get("symbol", "BTCUSDT")
-
-        if order_status == "FILLED":
-            logger.info(f"Order filled for {symbol}: {order_event}")
-            state = position_state.setdefault(symbol, {"filled_orders": set()})
-
-            if order_id in state.get("filled_orders", set()):
-                logger.info(f"Order {order_id} already handled. Skipping TP/SL setup.")
-                return
-
-            state["filled_orders"].add(order_id)
-            logger.info(f"Order {order_id} marked as filled and TP/SL will be managed.")
-            save_position_state()
-
     def on_error(ws, error):
         logger.error(f"WebSocket error: {error}")
 
@@ -190,3 +83,96 @@ def start_websocket_listener():
         except Exception as e:
             logger.error(f"WebSocket connection error, retrying: {e}")
             time.sleep(5)
+
+
+def handle_tp_sl(data):
+    """Expose TP handler for use in test/simulation endpoints."""
+    tp_event = data.get("data", {})
+    tp_price_hit = float(tp_event.get("triggerPrice", 0))
+    symbol = tp_event.get("symbol", "BTCUSDT")
+
+    logger.info(f"TP trigger detected for {symbol} at price: {tp_price_hit}")
+    state = position_state.get(symbol, {})
+    tps = state.get("tps", [])
+    step = state.get("step", 0)
+
+    if not tps or step >= len(tps):
+        logger.warning(f"No TP state for {symbol}. Skipping.")
+        return
+
+    new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
+    next_step = step + 1
+    new_tp = tps[next_step] if next_step < len(tps) else None
+
+    logger.info(f"Step {step} hit. New SL: {new_sl}, Next TP: {new_tp}")
+
+    # Cancel all limit orders if TP1 is hit
+    if step == 0:
+        try:
+            random_bytes = secrets.token_bytes(32)
+            nonce = base64.b64encode(random_bytes).decode('utf-8')
+            timestamp = str(int(time.time() * 1000))
+            body_json = json.dumps({"symbol": symbol}, separators=(',', ':'))
+            digest_input = nonce + timestamp + API_KEY + body_json
+            digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
+            sign_input = digest + API_SECRET
+            signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
+
+            headers = {
+                "api-key": API_KEY,
+                "sign": signature,
+                "nonce": nonce,
+                "timestamp": timestamp,
+                "Content-Type": "application/json"
+            }
+
+            cancel_resp = requests.post(
+                f"{BASE_URL}/api/v1/futures/trade/cancel_all_orders",
+                headers=headers,
+                data=body_json
+            )
+            cancel_resp.raise_for_status()
+            logger.info(f"[LIMIT ORDERS CANCELLED] {cancel_resp.json()}")
+        except Exception as cancel_err:
+            logger.error(f"[CANCEL LIMIT ORDERS FAILED] {str(cancel_err)}")
+
+    if new_tp:
+        modify_body = {
+            "symbol": symbol,
+            "tpTriggerPrice": str(new_tp),
+            "tpTriggerType": "MARKET_PRICE",
+            "slTriggerPrice": str(new_sl),
+            "slTriggerType": "MARKET_PRICE"
+        }
+
+        body_json = json.dumps(modify_body, separators=(',', ':'))
+        random_bytes = secrets.token_bytes(32)
+        nonce = base64.b64encode(random_bytes).decode('utf-8')
+        timestamp = str(int(time.time() * 1000))
+
+        digest_input = nonce + timestamp + API_KEY + body_json
+        digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
+        sign_input = digest + API_SECRET
+        signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
+
+        headers = {
+            "api-key": API_KEY,
+            "sign": signature,
+            "nonce": nonce,
+            "timestamp": timestamp,
+            "Content-Type": "application/json"
+        }
+
+        try:
+            response = requests.post(
+                f"{BASE_URL}/api/v1/futures/position/modify_tp_sl",
+                headers=headers,
+                data=body_json
+            )
+            response.raise_for_status()
+            logger.info(f"[TP/SL MODIFIED] {response.json()}")
+        except Exception as e:
+            logger.error(f"[TP/SL MODIFY FAILED] {str(e)}")
+
+    state["step"] = next_step
+    save_position_state()

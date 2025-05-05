@@ -54,6 +54,8 @@ def debug_signature():
 from flask import request, jsonify
 from modules.websocket_handler import handle_tp_sl
 
+from modules.websocket_handler import handle_tp_sl
+
 @app.route("/simulate-tp", methods=["POST"])
 def simulate_tp():
     try:
