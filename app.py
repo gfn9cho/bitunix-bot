@@ -12,6 +12,8 @@ import hashlib
 import json
 import random
 import time
+import base64
+import secrets
 
 app = Flask(__name__)
 
@@ -20,7 +22,8 @@ def debug_signature():
     API_KEY = os.getenv("API_KEY")
     API_SECRET = os.getenv("API_SECRET")
     timestamp = str(int(time.time() * 1000))
-    nonce = str(random.randint(1000000000, 4294967295))
+    random_bytes = secrets.token_bytes(32)
+    nonce = base64.b64encode(random_bytes).decode('utf-8')
 
     order_data = {
         "symbol": "BTCUSDT",
@@ -37,9 +40,7 @@ def debug_signature():
 
     body_json = json.dumps(order_data, separators=(',', ':'))
     pre_sign = f"{timestamp}{nonce}{body_json}"
-    digest = hashlib.sha256(pre_sign.encode('utf-8')).hexdigest()
-    sign_input = digest + API_SECRET
-    signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
+    signature = hmac.new(API_SECRET.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
 
     return jsonify({
         "api_key": API_KEY,

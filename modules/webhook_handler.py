@@ -31,7 +31,20 @@ def webhook_handler(symbol):
             alert_name = "unknown"
             payload_symbol = None
 
-        symbol = (payload_symbol or symbol or "BTCUSDT").upper()
+        symbol_qty = (payload_symbol or symbol or "BTCUSDT").upper()
+        if "_" in symbol_qty:
+            symbol, qty_str = symbol_qty.split("_", 1)
+        try:
+            override_qty = float(qty_str)
+            logger.info(f"[SYMBOL_QTY] Parsed symbol: {symbol}, Custom qty override: {override_qty}")
+        except ValueError:
+            override_qty = None
+            logger.warning(f"[SYMBOL_QTY] Invalid quantity format in symbol: {symbol_qty}, ignoring override.")
+        else:
+            symbol = symbol_qty
+            override_qty = None
+            logger.info(f"[SYMBOL_QTY] Using default quantity. Parsed symbol: {symbol}")
+
         logger.info(f"Parsed data: {data}")
         logger.info(f"Received alert '{alert_name}' for {symbol}: {message}")
 
@@ -54,11 +67,12 @@ def webhook_handler(symbol):
         sl = parsed["stop_loss"]
 
         # Market order
-        place_order(symbol, direction, entry, 10, order_type="MARKET", tp=tp1, sl=sl)
+        market_qty = override_qty if override_qty else 10
+        place_order(symbol, direction, entry, market_qty, order_type="MARKET", tp=tp1, sl=sl)
         # Limit orders
-        #place_order(symbol, direction, zone_start, 10, order_type="LIMIT", tp=tp1, sl=sl)
-        #place_order(symbol, direction, zone_middle, 10, order_type="LIMIT", tp=tp1, sl=sl)
-        #place_order(symbol, direction, zone_bottom, 20, order_type="LIMIT", tp=tp1, sl=sl)
+        place_order(symbol, direction, zone_start, override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)
+        place_order(symbol, direction, zone_middle, override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)
+        place_order(symbol, direction, zone_bottom, (override_qty * 2 if override_qty else 20), order_type="LIMIT", tp=tp1, sl=sl)
 
         return jsonify({
             "status": "parsed",

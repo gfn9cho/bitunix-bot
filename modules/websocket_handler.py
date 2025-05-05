@@ -10,27 +10,43 @@ from datetime import datetime
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger, error_logger
 from modules.state import position_state, save_position_state
+import base64
+import secrets
 
 def start_websocket_listener():
     def on_open(ws):
         logger.info("WebSocket opened. Sending login request.")
+
         timestamp = str(int(time.time() * 1000))
-        pre_sign = timestamp + "GET" + "/user/verify"
-        signature = hmac.new(API_SECRET.encode(), pre_sign.encode(), hashlib.sha256).hexdigest()
+        random_bytes = secrets.token_bytes(32)
+        nonce = base64.b64encode(random_bytes).decode('utf-8')
+        #nonce = str(random.randint(1000000000, 4294967295))
+        pre_sign = timestamp + nonce
+        signature = hmac.new(API_SECRET.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
 
         auth_payload = {
-            "op": "login",
-            "args": [API_KEY, timestamp, signature]
-        }
+            "event": "login",
+            "params": {
+                "apiKey": API_KEY,
+                "timestamp": timestamp,
+                "nonce": nonce,
+                "sign": signature
+                }
+            }
+
         ws.send(json.dumps(auth_payload))
-        logger.info("Login payload sent.")
+        logger.info(f"Login payload sent: {auth_payload}")
 
         subscribe_payload = {
-            "op": "subscribe",
-            "args": ["futures.position", "futures.tp_sl", "futures.order"]
+            "event": "subscribe",
+            "params": {
+                "channels": ["futures.position", "futures.tp_sl", "futures.order"]
+            }
         }
+
         ws.send(json.dumps(subscribe_payload))
         logger.info("Subscription payload sent.")
+
 
     def on_message(ws, message):
         try:
