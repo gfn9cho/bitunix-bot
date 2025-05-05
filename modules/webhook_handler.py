@@ -1,7 +1,7 @@
 from flask import request, jsonify
 from datetime import datetime
 import logging
-from modules.utils import parse_signal, get_today_loss
+from modules.utils import parse_signal, get_today_loss, place_order
 from modules.config import MAX_DAILY_LOSS
 from modules.logger_config import logger, error_logger, trade_logger, reversal_logger
 from modules.state import position_state, save_position_state
@@ -12,16 +12,12 @@ def webhook_handler(symbol):
     logger.info(f"Request headers: {dict(request.headers)}")
 
     try:
-        # Read today's loss only once
         today_loss = get_today_loss()
         logger.info(f"[LOSS GUARD] Today: {today_loss} / Limit: {MAX_DAILY_LOSS}")
 
         if today_loss >= MAX_DAILY_LOSS:
             logger.warning("Max daily loss reached. Blocking trades.")
-            return jsonify({
-                "status": "blocked",
-                "message": "Max daily loss reached"
-            }), 403
+            return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
 
         try:
             data = request.get_json(force=True)
@@ -48,10 +44,25 @@ def webhook_handler(symbol):
         }
         save_position_state()
 
+        # Execute trades
+        direction = parsed["direction"]
+        entry = parsed["entry_price"]
+        zone_start, zone_bottom = parsed["accumulation_zone"]
+        zone_middle = (zone_start + zone_bottom) / 2
+        tp1 = parsed["take_profits"][0]
+        sl = parsed["stop_loss"]
+
+        # Market order
+        place_order(symbol, direction, entry, 10, order_type="MARKET", tp=tp1, sl=sl)
+        # Limit orders
+        place_order(symbol, direction, zone_start, 10, order_type="LIMIT", tp=tp1, sl=sl)
+        place_order(symbol, direction, zone_middle, 10, order_type="LIMIT", tp=tp1, sl=sl)
+        place_order(symbol, direction, zone_bottom, 20, order_type="LIMIT", tp=tp1, sl=sl)
+
         return jsonify({
             "status": "parsed",
             "symbol": symbol,
-            "direction": parsed["direction"],
+            "direction": direction,
             "timestamp": datetime.utcnow().isoformat()
         })
 

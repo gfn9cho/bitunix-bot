@@ -8,14 +8,12 @@ import logging
 import requests
 from datetime import datetime
 from modules.config import API_KEY, API_SECRET, BASE_URL
-from modules.logger_config import logger, error_logger, trade_logger
+from modules.logger_config import logger, error_logger
 from modules.state import position_state, save_position_state
-
 
 def start_websocket_listener():
     def on_open(ws):
         logger.info("WebSocket opened. Sending login request.")
-
         timestamp = str(int(time.time() * 1000))
         pre_sign = timestamp + "GET" + "/user/verify"
         signature = hmac.new(API_SECRET.encode(), pre_sign.encode(), hashlib.sha256).hexdigest()
@@ -62,7 +60,7 @@ def start_websocket_listener():
             logger.warning(f"No TP state for {symbol}. Skipping.")
             return
 
-        new_sl = tps[step]
+        new_sl = state.get("entry") if step == 0 else tps[step - 1]
         next_step = step + 1
         new_tp = tps[next_step] if next_step < len(tps) else None
 

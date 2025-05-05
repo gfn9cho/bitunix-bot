@@ -16,7 +16,15 @@ import json
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
 
-def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20):
+import time
+import hmac
+import hashlib
+import requests
+import json
+from modules.config import API_KEY, API_SECRET, BASE_URL
+from modules.logger_config import logger
+
+def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None):
     timestamp = str(int(time.time() * 1000))
     nonce = timestamp
 
@@ -30,10 +38,13 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20):
         "position_id": 0,
         "leverage": leverage,
         "external_oid": str(int(time.time() * 1000)),
-        "stop_loss_price": "",
-        "take_profit_price": "",
         "position_mode": "ONE_WAY"
     }
+
+    if sl:
+        order_data["stop_loss_price"] = str(sl)
+    if tp:
+        order_data["take_profit_price"] = str(tp)
 
     body_json = json.dumps(order_data, separators=(',', ':'))
     pre_sign = f"{timestamp}{nonce}{body_json}"
@@ -48,14 +59,17 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20):
     }
 
     url = f"{BASE_URL}/api/v1/futures/trade/place_order"
+
     try:
         response = requests.post(url, headers=headers, data=body_json)
         response.raise_for_status()
-        logger.info(f"Order placed successfully: {response.json()}")
-        return response.json()
+        result = response.json()
+        logger.info(f"[ORDER SUCCESS] {result}")
+        return result
     except Exception as e:
-        logger.error(f"Error placing order: {e}")
+        logger.error(f"[ORDER FAILED] Error placing {order_type} order for {symbol}: {e}")
         return None
+
 
 
 def get_today():
