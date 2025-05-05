@@ -24,31 +24,45 @@ import json
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
 
+import time
+import hmac
+import hashlib
+import requests
+import json
+from modules.config import API_KEY, API_SECRET, BASE_URL
+from modules.logger_config import logger
+
+print("API_KEY:", repr(os.getenv("API_KEY")))
+print("API_SECRET:", repr(os.getenv("API_SECRET")))
+
 def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None):
-    timestamp = str(int(time.time() * 1000))
-    nonce = timestamp
+    now = str(int(time.time() * 1000))  # use same value for both timestamp and nonce
+    timestamp = now
+    nonce = now
 
     order_data = {
         "symbol": symbol,
         "price": str(price),
         "vol": str(qty),
-        "side": side,  # "BUY" or "SELL"
-        "type": order_type,  # "LIMIT" or "MARKET"
+        "side": side,  # BUY or SELL
+        "type": order_type,  # MARKET or LIMIT
         "open_type": "ISOLATED",
         "position_id": 0,
         "leverage": leverage,
-        "external_oid": str(int(time.time() * 1000)),
+        "external_oid": now,
         "position_mode": "ONE_WAY"
     }
 
-    if sl:
-        order_data["stop_loss_price"] = str(sl)
+    # Optional TP/SL
     if tp:
         order_data["take_profit_price"] = str(tp)
+    if sl:
+        order_data["stop_loss_price"] = str(sl)
 
+    # Serialize without extra spaces
     body_json = json.dumps(order_data, separators=(',', ':'))
     pre_sign = f"{timestamp}{nonce}{body_json}"
-    signature = hmac.new(API_SECRET.encode(), pre_sign.encode(), hashlib.sha256).hexdigest()
+    signature = hmac.new(API_SECRET.encode("utf-8"), pre_sign.encode("utf-8"), hashlib.sha256).hexdigest()
 
     headers = {
         "Content-Type": "application/json",
@@ -58,16 +72,21 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=No
         "nonce": nonce
     }
 
-    url = f"{BASE_URL}/api/v1/futures/trade/place_order"
+    # Debug logging
+    logger.info(f"[SIGN DEBUG] pre_sign: {pre_sign}")
+    logger.info(f"[SIGN DEBUG] signature: {signature}")
+    logger.info(f"[SIGN DEBUG] headers: {headers}")
+    logger.info(f"[SIGN DEBUG] body_json: {body_json}")
 
     try:
-        response = requests.post(url, headers=headers, data=body_json)
+        response = requests.post(f"{BASE_URL}/api/v1/futures/trade/place_order", headers=headers, data=body_json)
         response.raise_for_status()
-        result = response.json()
-        logger.info(f"[ORDER SUCCESS] {result}")
-        return result
-    except Exception as e:
-        logger.error(f"[ORDER FAILED] Error placing {order_type} order for {symbol}: {e}")
+        logger.info(f"[ORDER SUCCESS] {response.json()}")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[ORDER FAILED] Request error: {e}")
+        if e.response is not None:
+            logger.error(f"[ORDER FAILED] Response: {e.response.text}")
         return None
 
 
