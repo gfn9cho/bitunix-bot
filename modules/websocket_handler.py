@@ -12,7 +12,7 @@ import secrets
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger, error_logger
 from modules.state import position_state, save_position_state
-from modules.utils import update_profit, update_loss
+from modules.utils import update_profit, update_loss, place_tp_sl_order, modify_tp_sl_order
 
 __all__ = ["start_websocket_listener", "handle_tp_sl"]
 
@@ -52,6 +52,26 @@ def start_websocket_listener():
         logger.info("Subscription payload sent.")
 
     def on_message(ws, message):
+        def handle_order(data):
+            order_event = data.get("data", {})
+            order_status = order_event.get("status")
+            order_id = order_event.get("orderId")
+            symbol = order_event.get("symbol", "BTCUSDT")
+
+            if order_status == "FILLED":
+                logger.info(f"Order filled for {symbol}: {order_event}")
+                state = position_state.setdefault(symbol, {"filled_orders": set()})
+
+                if order_id in state.get("filled_orders", set()):
+                    logger.info(f"Order {order_id} already handled. Skipping TP/SL setup.")
+                    return
+
+                state["filled_orders"].add(order_id)
+                if state.get("step", 0) == 0:
+                    tp1 = state.get("tps", [])[0]
+                    place_tp_sl_order(symbol, tp1)
+                    logger.info(f"Placed TP1 for {symbol} at {tp1}")
+                save_position_state()
         try:
             data = json.loads(message)
             topic = data.get("topic")
@@ -88,13 +108,17 @@ def start_websocket_listener():
 
 def handle_tp_sl(data):
     """Expose TP handler for use in test/simulation endpoints."""
+    state = {}
     tp_event = data.get("data", {})
     tp_price_hit = float(tp_event.get("triggerPrice", 0))
     symbol = tp_event.get("symbol", "BTCUSDT")
+    state = position_state.get(symbol, {})
+
+
 
     logger.info(f"TP trigger detected for {symbol} at price: {tp_price_hit}")
 
-    # Compute actual profit from entry to this TP level
+    # Compute P&L based on trigger direction (TP or SL)
     try:
         step = state.get("step", 0)
         entry_price = state.get("entry_price")
@@ -106,8 +130,11 @@ def handle_tp_sl(data):
         else:
             profit_amount = (tp_price_hit - entry_price) * qty
 
-        update_profit(round(profit_amount, 4))
-        logger.info(f"[P&L LOGGED] Profit of {profit_amount:.4f} logged for {symbol} at TP{step + 1}")
+        if profit_amount > 0:
+            update_profit(round(profit_amount, 4))
+        else:
+            update_loss(round(abs(profit_amount), 4))
+        logger.info(f"[P&L LOGGED] {'Profit' if profit_amount > 0 else 'Loss'} of {abs(profit_amount):.4f} logged for {symbol} at TP{step + 1}")
     except Exception as e:
         logger.warning(f"[P&L LOGGING FAILED] Could not log profit for {symbol}: {str(e)}")
     except Exception as e:
@@ -157,31 +184,8 @@ def handle_tp_sl(data):
             logger.error(f"[CANCEL LIMIT ORDERS FAILED] {str(cancel_err)}")
 
     if new_tp:
-        modify_body = {
-            "symbol": symbol,
-            "tpTriggerPrice": str(new_tp),
-            "tpTriggerType": "MARKET_PRICE",
-            "slTriggerPrice": str(new_sl),
-            "slTriggerType": "MARKET_PRICE"
-        }
-
-        body_json = json.dumps(modify_body, separators=(',', ':'))
-        random_bytes = secrets.token_bytes(32)
-        nonce = base64.b64encode(random_bytes).decode('utf-8')
-        timestamp = str(int(time.time() * 1000))
-
-        digest_input = nonce + timestamp + API_KEY + body_json
-        digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
-        sign_input = digest + API_SECRET
-        signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
-
-        headers = {
-            "api-key": API_KEY,
-            "sign": signature,
-            "nonce": nonce,
-            "timestamp": timestamp,
-            "Content-Type": "application/json"
-        }
+        modify_tp_sl_order(symbol, new_tp, new_sl)
+        return
 
         try:
             response = requests.post(

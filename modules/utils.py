@@ -57,6 +57,79 @@ def get_today_net_loss():
     loss = log.get(today, {}).get("loss", 0)
     return max(loss - profit, 0)
 
+def modify_tp_sl_order(symbol, tp_price, sl_price):
+    timestamp = str(int(time.time() * 1000))
+    nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
+
+    order_data = {
+        "symbol": symbol,
+        "tpTriggerPrice": str(tp_price),
+        "tpTriggerType": "MARKET_PRICE",
+        "tpOrderType": "MARKET"
+    }
+
+    body_json = json.dumps(order_data, separators=(',', ':'))
+    digest_input = nonce + timestamp + API_KEY + body_json
+    digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
+    sign_input = digest + API_SECRET
+    signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
+
+    headers = {
+        "Content-Type": "application/json",
+        "api-key": API_KEY,
+        "sign": signature,
+        "timestamp": timestamp,
+        "nonce": nonce
+    }
+
+    try:
+        response = requests.post(f"{BASE_URL}/api/v1/futures/position/modify_tp_sl", headers=headers, data=body_json)
+        response.raise_for_status()
+        logger.info(f"[TP/SL MODIFY SUCCESS] {response.json()}")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[TP/SL MODIFY FAILED] {e}")
+        if e.response is not None:
+            logger.error(f"[TP/SL MODIFY FAILED] Response: {e.response.text}")
+        return None
+
+
+def place_tp_sl_order(symbol, tp_price):
+    timestamp = str(int(time.time() * 1000))
+    nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
+
+    order_data = {
+        "symbol": symbol,
+        "tpTriggerPrice": str(tp_price),
+        "tpTriggerType": "MARKET_PRICE",
+        "tpOrderType": "MARKET"
+    }
+
+    body_json = json.dumps(order_data, separators=(',', ':'))
+    digest_input = nonce + timestamp + API_KEY + body_json
+    digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
+    sign_input = digest + API_SECRET
+    signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
+
+    headers = {
+        "Content-Type": "application/json",
+        "api-key": API_KEY,
+        "sign": signature,
+        "timestamp": timestamp,
+        "nonce": nonce
+    }
+
+    try:
+        response = requests.post(f"{BASE_URL}/api/v1/futures/position/place_tp_sl", headers=headers, data=body_json)
+        response.raise_for_status()
+        logger.info(f"[TP/SL ORDER SUCCESS] {response.json()}")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[TP/SL ORDER FAILED] {e}")
+        if e.response is not None:
+            logger.error(f"[TP/SL ORDER FAILED] Response: {e.response.text}")
+        return None
+
 def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True, reduce_only=False):
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
@@ -74,12 +147,8 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=No
 
     if reduce_only:
         order_data["reduceOnly"] = True
-    if tp:
-        order_data.update({
-            "tpPrice": str(tp),
-            "tpStopType": "MARK_PRICE",
-            "tpOrderType": "MARKET"
-        })
+        order_data["tradeSide"] = "CLOSE"
+
     if sl:
         order_data.update({
             "slPrice": str(sl),

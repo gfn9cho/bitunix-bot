@@ -1,7 +1,7 @@
 from flask import request, jsonify
 from datetime import datetime
 import logging
-from modules.utils import parse_signal, get_today_net_loss, place_order, update_profit, update_loss
+from modules.utils import parse_signal, get_today_net_loss, place_order, update_profit, update_loss, place_tp_sl_order
 from modules.config import MAX_DAILY_LOSS
 from modules.logger_config import logger, error_logger, trade_logger, reversal_logger
 from modules.state import position_state, save_position_state
@@ -91,18 +91,13 @@ def webhook_handler(symbol):
 
             # Place initial TP order to close 70% at TP1
             tp_qty = round(market_qty * 0.7, 6)
-            logger.info(f"[ORDER SUBMIT] TP1 reduce-only order: symbol={symbol}, direction={'SELL' if direction == 'BUY' else 'BUY'}, price={tp1}, qty={tp_qty}")
-            place_order(
-                symbol=symbol,
-                side='SELL' if direction == 'BUY' else 'BUY',
-                price=tp1,
-                qty=tp_qty,
-                order_type="LIMIT",
-                private=True,
-                reduce_only=True
-            )
+            logger.info(f"[TP SL SETUP] Setting TP1 at {tp1} for 70% of market position")
+            place_tp_sl_order(symbol=symbol, tp_price=tp1)
+            logger.info(f"[TP1 READY] TP SL order placed for {symbol} at price {tp1}")
+            logger.info(f"[TP LOGGED] Setting initial TP, waiting to log P&L when filled")
 
             if response and response.get("code", -1) == 0:
+                logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
                 break
             error_logger.error(f"[ORDER FAILURE] Attempt {attempt + 1}/{retries} - symbol={symbol}, direction={direction}, response={response}")
             time.sleep(1)
