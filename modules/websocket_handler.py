@@ -12,6 +12,7 @@ import secrets
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger, error_logger
 from modules.state import position_state, save_position_state
+from modules.utils import update_profit, update_loss
 
 __all__ = ["start_websocket_listener", "handle_tp_sl"]
 
@@ -92,6 +93,25 @@ def handle_tp_sl(data):
     symbol = tp_event.get("symbol", "BTCUSDT")
 
     logger.info(f"TP trigger detected for {symbol} at price: {tp_price_hit}")
+
+    # Compute actual profit from entry to this TP level
+    try:
+        step = state.get("step", 0)
+        entry_price = state.get("entry_price")
+        qty_distribution = state.get("qty_distribution", [1])
+        qty = qty_distribution[step] if step < len(qty_distribution) else 0
+
+        if state.get("direction") == "SELL":
+            profit_amount = (entry_price - tp_price_hit) * qty
+        else:
+            profit_amount = (tp_price_hit - entry_price) * qty
+
+        update_profit(round(profit_amount, 4))
+        logger.info(f"[P&L LOGGED] Profit of {profit_amount:.4f} logged for {symbol} at TP{step + 1}")
+    except Exception as e:
+        logger.warning(f"[P&L LOGGING FAILED] Could not log profit for {symbol}: {str(e)}")
+    except Exception as e:
+        logger.warning(f"[P&L LOGGING FAILED] Could not log profit for {symbol}: {str(e)}")
     state = position_state.get(symbol, {})
     tps = state.get("tps", [])
     step = state.get("step", 0)

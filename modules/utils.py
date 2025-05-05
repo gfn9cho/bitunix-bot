@@ -1,57 +1,79 @@
 import os
 import json
 import re
-from datetime import datetime
-from modules.logger_config import logger
-from modules.config import LOSS_LOG_FILE
-
-
-import os
-#LOSS_LOG_FILE = os.getenv("LOSS_LOG_FILE", "/var/data/daily_loss_log.json")
 import time
 import hmac
 import hashlib
 import requests
-import json
-from modules.config import API_KEY, API_SECRET, BASE_URL
-from modules.logger_config import logger
-
-import time
-import hmac
-import hashlib
-import requests
-import json
-from modules.config import API_KEY, API_SECRET, BASE_URL
-from modules.logger_config import logger
-
-import time
-import hmac
-import hashlib
-import requests
-import json
-from modules.config import API_KEY, API_SECRET, BASE_URL
-from modules.logger_config import logger
-import random
 import base64
 import secrets
+from datetime import datetime
+from modules.config import API_KEY, API_SECRET, BASE_URL
+from modules.logger_config import logger
 
-def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None):
+LOSS_LOG_FILE = "daily_loss_log.json"
+
+def get_today():
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+def read_loss_log():
+    if not os.path.exists(LOSS_LOG_FILE):
+        return {}
+    try:
+        with open(LOSS_LOG_FILE, 'r') as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return {}
+
+def write_loss_log(log):
+    with open(LOSS_LOG_FILE, 'w') as f:
+        json.dump(log, f)
+
+def update_loss(amount):
+    log = read_loss_log()
+    today = get_today()
+    if today not in log:
+        log[today] = {"profit": 0, "loss": 0}
+    log[today]["loss"] += amount
+    write_loss_log(log)
+
+def update_profit(amount):
+    log = read_loss_log()
+    today = get_today()
+    if today not in log:
+        log[today] = {"profit": 0, "loss": 0}
+    log[today]["profit"] += amount
+    write_loss_log(log)
+
+def get_today_loss():
+    log = read_loss_log()
+    today = get_today()
+    return log.get(today, {}).get("loss", 0)
+
+def get_today_net_loss():
+    log = read_loss_log()
+    today = get_today()
+    profit = log.get(today, {}).get("profit", 0)
+    loss = log.get(today, {}).get("loss", 0)
+    return max(loss - profit, 0)
+
+def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True, reduce_only=False):
     timestamp = str(int(time.time() * 1000))
-    random_bytes = secrets.token_bytes(32)
-    nonce = base64.b64encode(random_bytes).decode('utf-8')
+    nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
     order_data = {
         "symbol": symbol,
         "qty": str(qty),
         "price": str(price),
-        "side": side.upper(),  # BUY or SELL
-        "orderType": order_type.upper(),  # LIMIT or MARKET
+        "side": side.upper(),
+        "orderType": order_type.upper(),
         "tradeSide": "OPEN",
         "effect": "GTC",
         "clientId": timestamp
     }
 
-    # Optional TP/SL fields
+    if reduce_only:
+        order_data["reduceOnly"] = True
     if tp:
         order_data.update({
             "tpPrice": str(tp),
@@ -65,15 +87,7 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=No
             "slOrderType": "MARKET"
         })
 
-    # Remove any None fields
-    order_data = {k: v for k, v in order_data.items() if v is not None}
     body_json = json.dumps(order_data, separators=(',', ':'))
-
-    # Log the payload
-    logger.info(f"[ORDER DATA] {order_data}")
-
-    #pre_sign = f"{timestamp}{nonce}{body_json}"
-    #signature = hmac.new(API_SECRET.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
     digest_input = nonce + timestamp + API_KEY + body_json
     digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
     sign_input = digest + API_SECRET
@@ -87,6 +101,8 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=No
         "nonce": nonce
     }
 
+    logger.info(f"[ORDER DATA] {order_data}")
+
     try:
         response = requests.post(f"{BASE_URL}/api/v1/futures/trade/place_order", headers=headers, data=body_json)
         response.raise_for_status()
@@ -97,42 +113,6 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=No
         if e.response is not None:
             logger.error(f"[ORDER FAILED] Response: {e.response.text}")
         return None
-
-
-
-def get_today():
-    return datetime.utcnow().strftime("%Y-%m-%d")
-
-def read_loss_log():
-    if not os.path.exists(LOSS_LOG_FILE):
-        return {}
-    try:
-        with open(LOSS_LOG_FILE, 'r') as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        logger.warning(f"{LOSS_LOG_FILE} is empty or invalid. Resetting.")
-        with open(LOSS_LOG_FILE, "w") as wf:
-            json.dump({}, wf)
-    return {}
-
-
-def write_loss_log(log):
-    with open(LOSS_LOG_FILE, 'w') as f:
-        json.dump(log, f)
-
-def update_loss(amount):
-    log = read_loss_log()
-    today = get_today()
-    log[today] = log.get(today, 0) + amount
-    write_loss_log(log)
-
-def get_today_loss():
-    log = read_loss_log()
-    today = get_today()
-    today_loss = log.get(today, 0)
-    logger.info(f"[LOSS CHECK] Path: {LOSS_LOG_FILE}, Log: {log}, Today's Loss: {today_loss}")
-    return today_loss
-
 
 def parse_signal(message):
     lines = message.split('\n')

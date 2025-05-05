@@ -1,90 +1,130 @@
-
-from flask import Flask, jsonify
-import threading
-from modules.webhook_handler import webhook_handler
-from modules.logger_config import logger, trade_logger, error_logger, reversal_logger
-from modules.config import API_KEY, API_SECRET, BASE_URL, POSITION_SIZE, LEVERAGE, MAX_DAILY_LOSS
-from modules.utils import parse_signal, calculate_zone_entries, calculate_quantities, update_loss, get_today_loss
-from modules.websocket_handler import start_websocket_listener
+from flask import request, jsonify
+from datetime import datetime
+import logging
+from modules.utils import parse_signal, get_today_net_loss, place_order
+from modules.config import MAX_DAILY_LOSS
+from modules.logger_config import logger, error_logger, trade_logger, reversal_logger
+from modules.state import position_state, save_position_state
 import os
 import hmac
 import hashlib
 import json
 import random
 import time
-import base64
-import secrets
 
-app = Flask(__name__)
 
-@app.route("/debug-signature", methods=["GET"])
-def debug_signature():
-    API_KEY = os.getenv("API_KEY")
-    API_SECRET = os.getenv("API_SECRET")
-    timestamp = str(int(time.time() * 1000))
-    random_bytes = secrets.token_bytes(32)
-    nonce = base64.b64encode(random_bytes).decode('utf-8')
+def webhook_handler(symbol):
+    raw_data = request.get_data(as_text=True)
+    logger.info(f"Raw webhook data: {raw_data}")
+    logger.info(f"Request headers: {dict(request.headers)}")
 
-    order_data = {
-        "symbol": "BTCUSDT",
-        "price": "95000",
-        "vol": "10",
-        "side": "BUY",
-        "type": "MARKET",
-        "open_type": "ISOLATED",
-        "position_id": 0,
-        "leverage": 20,
-        "external_oid": timestamp,
-        "position_mode": "ONE_WAY"
-    }
-
-    body_json = json.dumps(order_data, separators=(',', ':'))
-    pre_sign = f"{timestamp}{nonce}{body_json}"
-    signature = hmac.new(API_SECRET.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
-
-    return jsonify({
-        "api_key": API_KEY,
-        "timestamp": timestamp,
-        "nonce": nonce,
-        "signature": signature,
-        "pre_sign": pre_sign,
-        "body_json": body_json
-    })
-
-from flask import request, jsonify
-from modules.websocket_handler import handle_tp_sl
-
-from modules.websocket_handler import handle_tp_sl
-
-@app.route("/simulate-tp", methods=["POST"])
-def simulate_tp():
     try:
-        data = request.json
-        symbol = data.get("symbol")
-        price = data.get("triggerPrice")
+        today_loss = get_today_net_loss()
+        logger.info(f"[LOSS GUARD] Today: {today_loss} / Limit: {MAX_DAILY_LOSS}")
 
-        if not symbol or not price:
-            return jsonify({"error": "Missing 'symbol' or 'triggerPrice' in payload"}), 400
+        if today_loss >= MAX_DAILY_LOSS:
+            logger.warning("Max daily loss reached. Blocking trades.")
+            return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
 
-        fake_tp_data = {
-            "topic": "futures.tp_sl",
-            "data": {
-                "symbol": symbol.upper(),
-                "triggerPrice": float(price)
-            }
+        try:
+            data = request.get_json(force=True)
+            message = data.get("message", "")
+            alert_name = data.get("alert_name", "unknown")
+            payload_symbol = data.get("symbol")
+        except Exception:
+            data = {}
+            message = raw_data.strip()
+            alert_name = "unknown"
+            payload_symbol = None
+
+        symbol_qty = (payload_symbol or symbol or "BTCUSDT").upper()
+        if "_" in symbol_qty:
+            symbol_part, qty_str = symbol_qty.split("_", 1)
+            symbol = symbol_part
+            try:
+                override_qty = float(qty_str)
+            except ValueError:
+                override_qty = None
+        else:
+            symbol = symbol_qty
+            override_qty = None
+
+        logger.info(f"Parsed data: {data}")
+        logger.info(f"Received alert '{alert_name}' for {symbol}: {message}")
+        logger.info(f"[SYMBOL_QTY] Using override_qty={override_qty} for all order placements")
+
+        parsed = parse_signal(message)
+
+        position_state[symbol] = {
+            "step": 0,
+            "tps": parsed["take_profits"],
+            "direction": parsed["direction"],
+            "filled_orders": set(),
+            "entry_price": parsed["entry_price"],
+            "qty_distribution": [0.7, 0.1, 0.1, 0.1]
         }
+        save_position_state()
 
-        handle_tp_sl(fake_tp_data)
-        return jsonify({"status": "TP event processed"}), 200
+        # Execute trades
+        direction = parsed["direction"]
+        entry = parsed["entry_price"]
+        zone_start, zone_bottom = parsed["accumulation_zone"]
+        zone_middle = (zone_start + zone_bottom) / 2
+        tp1 = parsed["take_profits"][0]
+        sl = parsed["stop_loss"]
+
+        # Market order
+        market_qty = override_qty if override_qty else 10
+        logger.info(f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}, sl={sl}")
+
+        retries = 3
+        for attempt in range(retries):
+            response = place_order(
+                symbol=symbol,
+                side=direction,
+                price=entry,
+                qty=market_qty,
+                order_type="MARKET",
+                sl=sl,
+                private=True
+            )
+
+            # Place initial TP order to close 70% at TP1
+            tp_qty = round(market_qty * 0.7, 6)
+            logger.info(f"[ORDER SUBMIT] TP1 reduce-only order: symbol={symbol}, direction={'SELL' if direction == 'BUY' else 'BUY'}, price={tp1}, qty={tp_qty}")
+            place_order(
+                symbol=symbol,
+                side='SELL' if direction == 'BUY' else 'BUY',
+                price=tp1,
+                qty=tp_qty,
+                order_type="LIMIT",
+                private=True,
+                reduce_only=True
+            )
+
+            if response and response.get("code", -1) == 0:
+                break
+            error_logger.error(f"[ORDER FAILURE] Attempt {attempt + 1}/{retries} - symbol={symbol}, direction={direction}, response={response}")
+            time.sleep(1)
+
+        # Limit orders
+        logger.info(f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, price={zone_start}, qty={override_qty or 10}, sl={sl}")
+        place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT", sl=sl)
+
+        logger.info(f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, price={zone_middle}, qty={override_qty or 10}, sl={sl}")
+        place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10, order_type="LIMIT", sl=sl)
+
+        bottom_qty = (override_qty * 2 if override_qty else 20)
+        logger.info(f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, price={zone_bottom}, qty={bottom_qty}, sl={sl}")
+        place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT", sl=sl)
+
+        return jsonify({
+            "status": "parsed",
+            "symbol": symbol,
+            "direction": direction,
+            "timestamp": datetime.utcnow().isoformat()
+        })
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/webhook/<symbol>', methods=['POST'])
-def webhook(symbol):
-    return webhook_handler(symbol)
-
-if __name__ == '__main__':
-    ws_thread = threading.Thread(target=start_websocket_listener, daemon=True)
-    ws_thread.start()
-    app.run(host='0.0.0.0', port=5000)
+        logger.exception("Error in webhook handler")
+        return jsonify({"status": "error", "message": str(e)}), 500

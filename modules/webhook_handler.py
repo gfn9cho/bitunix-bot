@@ -1,7 +1,7 @@
 from flask import request, jsonify
 from datetime import datetime
 import logging
-from modules.utils import parse_signal, get_today_loss, place_order
+from modules.utils import parse_signal, get_today_net_loss, place_order, update_profit, update_loss
 from modules.config import MAX_DAILY_LOSS
 from modules.logger_config import logger, error_logger, trade_logger, reversal_logger
 from modules.state import position_state, save_position_state
@@ -19,7 +19,7 @@ def webhook_handler(symbol):
     logger.info(f"Request headers: {dict(request.headers)}")
 
     try:
-        today_loss = get_today_loss()
+        today_loss = get_today_net_loss()
         logger.info(f"[LOSS GUARD] Today: {today_loss} / Limit: {MAX_DAILY_LOSS}")
 
         if today_loss >= MAX_DAILY_LOSS:
