@@ -83,7 +83,7 @@ def modify_tp_sl_order(symbol, tp_price, sl_price):
     }
 
     try:
-        response = requests.post(f"{BASE_URL}/api/v1/futures/position/modify_tp_sl", headers=headers, data=body_json)
+        response = requests.post(f"{BASE_URL}/api/v1/futures/tpsl/modify_order", headers=headers, data=body_json)
         response.raise_for_status()
         logger.info(f"[TP/SL MODIFY SUCCESS] {response.json()}")
         return response.json()
@@ -120,7 +120,7 @@ def place_tp_sl_order(symbol, tp_price):
     }
 
     try:
-        response = requests.post(f"{BASE_URL}/api/v1/futures/position/place_tp_sl", headers=headers, data=body_json)
+        response = requests.post(f"{BASE_URL}/api/v1/futures/tpsl/place_order", headers=headers, data=body_json)
         response.raise_for_status()
         logger.info(f"[TP/SL ORDER SUCCESS] {response.json()}")
         return response.json()
