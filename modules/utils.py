@@ -31,14 +31,12 @@ import requests
 import json
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
-
-print("API_KEY:", repr(os.getenv("API_KEY")))
-print("API_SECRET:", repr(os.getenv("API_SECRET")))
+import random
 
 def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None):
     now = str(int(time.time() * 1000))  # use same value for both timestamp and nonce
-    timestamp = now
-    nonce = now
+    timestamp = str(int(time.time() * 1000))
+    nonce = str(random.randint(1000000000, 4294967295))  # 32-bit random
 
     order_data = {
         "symbol": symbol,
