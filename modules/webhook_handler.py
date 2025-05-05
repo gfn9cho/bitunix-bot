@@ -5,6 +5,11 @@ from modules.utils import parse_signal, get_today_loss, place_order
 from modules.config import MAX_DAILY_LOSS
 from modules.logger_config import logger, error_logger, trade_logger, reversal_logger
 from modules.state import position_state, save_position_state
+import os
+import hmac
+import hashlib
+import json
+import random
 import time
 
 
@@ -34,20 +39,18 @@ def webhook_handler(symbol):
 
         symbol_qty = (payload_symbol or symbol or "BTCUSDT").upper()
         if "_" in symbol_qty:
-            symbol, qty_str = symbol_qty.split("_", 1)
+            symbol_part, qty_str = symbol_qty.split("_", 1)
+            symbol = symbol_part
             try:
                 override_qty = float(qty_str)
-                logger.info(f"[SYMBOL_QTY] Parsed symbol: {symbol}, Custom qty override: {override_qty}")
             except ValueError:
                 override_qty = None
-                logger.warning(f"[SYMBOL_QTY] Invalid quantity format in symbol: {symbol_qty}, ignoring override.")
         else:
             symbol = symbol_qty
             override_qty = None
-            logger.info(f"[SYMBOL_QTY] Using default quantity. Parsed symbol: {symbol}")
-
         logger.info(f"Parsed data: {data}")
         logger.info(f"Received alert '{alert_name}' for {symbol}: {message}")
+        logger.info(f"[SYMBOL_QTY] Using override_qty={override_qty} for all order placements")
 
         parsed = parse_signal(message)
 
@@ -55,7 +58,9 @@ def webhook_handler(symbol):
             "step": 0,
             "tps": parsed["take_profits"],
             "direction": parsed["direction"],
-            "filled_orders": set()
+            "filled_orders": set(),
+            "entry_price": parsed["entry_price"],
+            "qty_distribution": [0.7, 0.1, 0.1, 0.1]
         }
         save_position_state()
 
@@ -69,26 +74,36 @@ def webhook_handler(symbol):
 
         # Market order
         market_qty = override_qty if override_qty else 10
-        place_order(symbol, direction, entry, market_qty, order_type="MARKET", tp=tp1, sl=sl)
+        logger.info(f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}, tp={tp1}, sl={sl}")
         retries = 3
         for attempt in range(retries):
-            response = place_order(...)
+            response = place_order(
+                symbol=symbol,
+                side=direction,
+                price=entry,
+                qty=market_qty,
+                order_type="MARKET",
+                tp=tp1,
+                sl=sl,
+                private=True
+            )
             if response and response.get("code", -1) == 0:
                 break
-            error_logger.error(...)
+            error_logger.error(f"[ORDER FAILURE] Attempt {attempt + 1}/{retries} - symbol={symbol}, direction={direction}, response={response}")
             time.sleep(1)
-
         # Limit orders
-        place_order(symbol, direction, zone_start, override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)
-        place_order(symbol, direction, zone_middle, override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)
-        place_order(symbol, direction, zone_bottom, (override_qty * 2 if override_qty else 20), order_type="LIMIT", tp=tp1, sl=sl)
+        logger.info(f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, price={zone_start}, qty={override_qty or 10}, tp={tp1}, sl={sl}")
+        place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)
+        logger.info(f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, price={zone_middle}, qty={override_qty or 10}, tp={tp1}, sl={sl}")
+        place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)
+        bottom_qty = (override_qty * 2 if override_qty else 20)
+        logger.info(f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, price={zone_bottom}, qty={bottom_qty}, tp={tp1}, sl={sl}")
+        place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT", tp=tp1, sl=sl)
 
         return jsonify({
             "status": "parsed",
             "symbol": symbol,
             "direction": direction,
-            "market_qty": market_qty,
-            "entry": entry,
             "timestamp": datetime.utcnow().isoformat()
         })
 
