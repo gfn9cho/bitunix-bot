@@ -48,6 +48,7 @@ def webhook_handler(symbol):
         else:
             symbol = symbol_qty
             override_qty = None
+
         logger.info(f"Parsed data: {data}")
         logger.info(f"Received alert '{alert_name}' for {symbol}: {message}")
         logger.info(f"[SYMBOL_QTY] Using override_qty={override_qty} for all order placements")
@@ -74,7 +75,8 @@ def webhook_handler(symbol):
 
         # Market order
         market_qty = override_qty if override_qty else 10
-        logger.info(f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}, tp={tp1}, sl={sl}")
+        logger.info(f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}, sl={sl}")
+
         retries = 3
         for attempt in range(retries):
             response = place_order(
@@ -83,22 +85,38 @@ def webhook_handler(symbol):
                 price=entry,
                 qty=market_qty,
                 order_type="MARKET",
-                tp=tp1,
                 sl=sl,
                 private=True
             )
+
+            # Place initial TP order to close 70% at TP1
+            tp_qty = round(market_qty * 0.7, 6)
+            logger.info(f"[ORDER SUBMIT] TP1 reduce-only order: symbol={symbol}, direction={'SELL' if direction == 'BUY' else 'BUY'}, price={tp1}, qty={tp_qty}")
+            place_order(
+                symbol=symbol,
+                side='SELL' if direction == 'BUY' else 'BUY',
+                price=tp1,
+                qty=tp_qty,
+                order_type="LIMIT",
+                private=True,
+                reduce_only=True
+            )
+
             if response and response.get("code", -1) == 0:
                 break
             error_logger.error(f"[ORDER FAILURE] Attempt {attempt + 1}/{retries} - symbol={symbol}, direction={direction}, response={response}")
             time.sleep(1)
+
         # Limit orders
-        logger.info(f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, price={zone_start}, qty={override_qty or 10}, tp={tp1}, sl={sl}")
-        place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)
-        logger.info(f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, price={zone_middle}, qty={override_qty or 10}, tp={tp1}, sl={sl}")
-        place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)
+        logger.info(f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, price={zone_start}, qty={override_qty or 10}, sl={sl}")
+        place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT", sl=sl)
+
+        logger.info(f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, price={zone_middle}, qty={override_qty or 10}, sl={sl}")
+        place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10, order_type="LIMIT", sl=sl)
+
         bottom_qty = (override_qty * 2 if override_qty else 20)
-        logger.info(f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, price={zone_bottom}, qty={bottom_qty}, tp={tp1}, sl={sl}")
-        place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT", tp=tp1, sl=sl)
+        logger.info(f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, price={zone_bottom}, qty={bottom_qty}, sl={sl}")
+        place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT", sl=sl)
 
         return jsonify({
             "status": "parsed",
