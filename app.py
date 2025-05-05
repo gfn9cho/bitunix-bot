@@ -51,6 +51,33 @@ def debug_signature():
         "body_json": body_json
     })
 
+from flask import request, jsonify
+from modules.websocket_handler import handle_tp_sl
+
+@app.route("/simulate-tp", methods=["POST"])
+def simulate_tp():
+    try:
+        data = request.json
+        symbol = data.get("symbol")
+        price = data.get("triggerPrice")
+
+        if not symbol or not price:
+            return jsonify({"error": "Missing 'symbol' or 'triggerPrice' in payload"}), 400
+
+        fake_tp_data = {
+            "topic": "futures.tp_sl",
+            "data": {
+                "symbol": symbol.upper(),
+                "triggerPrice": float(price)
+            }
+        }
+
+        handle_tp_sl(fake_tp_data)
+        return jsonify({"status": "TP event processed"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/webhook/<symbol>', methods=['POST'])
 def webhook(symbol):
     return webhook_handler(symbol)
