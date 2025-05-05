@@ -69,8 +69,12 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=No
     order_data = {k: v for k, v in order_data.items() if v is not None}
     body_json = json.dumps(order_data, separators=(',', ':'))
 
-    pre_sign = f"{timestamp}{nonce}{body_json}"
-    signature = hmac.new(API_SECRET.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
+    #pre_sign = f"{timestamp}{nonce}{body_json}"
+    #signature = hmac.new(API_SECRET.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
+    digest_input = nonce + timestamp + API_KEY + body_json
+    digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
+    sign_input = digest + API_SECRET
+    signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
 
     headers = {
         "Content-Type": "application/json",
