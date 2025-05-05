@@ -5,6 +5,7 @@ from modules.utils import parse_signal, get_today_loss, place_order
 from modules.config import MAX_DAILY_LOSS
 from modules.logger_config import logger, error_logger, trade_logger, reversal_logger
 from modules.state import position_state, save_position_state
+import time
 
 
 def webhook_handler(symbol):
@@ -69,6 +70,14 @@ def webhook_handler(symbol):
         # Market order
         market_qty = override_qty if override_qty else 10
         place_order(symbol, direction, entry, market_qty, order_type="MARKET", tp=tp1, sl=sl)
+        retries = 3
+        for attempt in range(retries):
+            response = place_order(...)
+            if response and response.get("code", -1) == 0:
+                break
+            error_logger.error(...)
+            time.sleep(1)
+
         # Limit orders
         place_order(symbol, direction, zone_start, override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)
         place_order(symbol, direction, zone_middle, override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)

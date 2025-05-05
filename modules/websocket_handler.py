@@ -7,11 +7,11 @@ import hashlib
 import logging
 import requests
 from datetime import datetime
+import base64
+import secrets
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger, error_logger
 from modules.state import position_state, save_position_state
-import base64
-import secrets
 
 def start_websocket_listener():
     def on_open(ws):
@@ -20,9 +20,10 @@ def start_websocket_listener():
         timestamp = str(int(time.time() * 1000))
         random_bytes = secrets.token_bytes(32)
         nonce = base64.b64encode(random_bytes).decode('utf-8')
-        #nonce = str(random.randint(1000000000, 4294967295))
-        pre_sign = timestamp + nonce
-        signature = hmac.new(API_SECRET.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
+        digest_input = nonce + timestamp + API_KEY
+        digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
+        sign_input = digest + API_SECRET
+        signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
 
         auth_payload = {
             "event": "login",
@@ -31,8 +32,8 @@ def start_websocket_listener():
                 "timestamp": timestamp,
                 "nonce": nonce,
                 "sign": signature
-                }
             }
+        }
 
         ws.send(json.dumps(auth_payload))
         logger.info(f"Login payload sent: {auth_payload}")
@@ -46,7 +47,6 @@ def start_websocket_listener():
 
         ws.send(json.dumps(subscribe_payload))
         logger.info("Subscription payload sent.")
-
 
     def on_message(ws, message):
         try:
@@ -76,11 +76,41 @@ def start_websocket_listener():
             logger.warning(f"No TP state for {symbol}. Skipping.")
             return
 
-        new_sl = state.get("entry") if step == 0 else tps[step - 1]
+        new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
         next_step = step + 1
         new_tp = tps[next_step] if next_step < len(tps) else None
 
         logger.info(f"Step {step} hit. New SL: {new_sl}, Next TP: {new_tp}")
+
+        # Cancel all limit orders if TP1 is hit
+        if step == 0:
+            try:
+                random_bytes = secrets.token_bytes(32)
+                nonce = base64.b64encode(random_bytes).decode('utf-8')
+                timestamp = str(int(time.time() * 1000))
+                body_json = json.dumps({"symbol": symbol}, separators=(',', ':'))
+                digest_input = nonce + timestamp + API_KEY + body_json
+                digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
+                sign_input = digest + API_SECRET
+                signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
+
+                headers = {
+                    "api-key": API_KEY,
+                    "sign": signature,
+                    "nonce": nonce,
+                    "timestamp": timestamp,
+                    "Content-Type": "application/json"
+                }
+
+                cancel_resp = requests.post(
+                    f"{BASE_URL}/api/v1/futures/trade/cancel_all_orders",
+                    headers=headers,
+                    data=body_json
+                )
+                cancel_resp.raise_for_status()
+                logger.info(f"[LIMIT ORDERS CANCELLED] {cancel_resp.json()}")
+            except Exception as cancel_err:
+                logger.error(f"[CANCEL LIMIT ORDERS FAILED] {str(cancel_err)}")
 
         if new_tp:
             modify_body = {
@@ -92,10 +122,14 @@ def start_websocket_listener():
             }
 
             body_json = json.dumps(modify_body, separators=(',', ':'))
-            nonce = str(int(time.time() * 1000))
-            timestamp = nonce
-            pre_sign = f"{timestamp}{nonce}{body_json}"
-            signature = hmac.new(API_SECRET.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
+            random_bytes = secrets.token_bytes(32)
+            nonce = base64.b64encode(random_bytes).decode('utf-8')
+            timestamp = str(int(time.time() * 1000))
+
+            digest_input = nonce + timestamp + API_KEY + body_json
+            digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
+            sign_input = digest + API_SECRET
+            signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
 
             headers = {
                 "api-key": API_KEY,
@@ -105,11 +139,18 @@ def start_websocket_listener():
                 "Content-Type": "application/json"
             }
 
-            response = requests.post(f"{BASE_URL}/api/v1/futures/position/modify_tp_sl", headers=headers, data=body_json)
-            response.raise_for_status()
-            logger.info(f"TP/SL updated: {response.json()}")
+            try:
+                response = requests.post(
+                    f"{BASE_URL}/api/v1/futures/position/modify_tp_sl",
+                    headers=headers,
+                    data=body_json
+                )
+                response.raise_for_status()
+                logger.info(f"[TP/SL MODIFIED] {response.json()}")
+            except Exception as e:
+                logger.error(f"[TP/SL MODIFY FAILED] {str(e)}")
 
-        position_state[symbol].update({"step": next_step, "tps": tps})
+        state["step"] = next_step
         save_position_state()
 
     def handle_order(data):
