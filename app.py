@@ -37,7 +37,9 @@ def debug_signature():
 
     body_json = json.dumps(order_data, separators=(',', ':'))
     pre_sign = f"{timestamp}{nonce}{body_json}"
-    signature = hmac.new(API_SECRET.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
+    digest = hashlib.sha256(pre_sign.encode('utf-8')).hexdigest()
+    sign_input = digest + API_SECRET
+    signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
 
     return jsonify({
         "api_key": API_KEY,
