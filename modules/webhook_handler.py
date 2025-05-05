@@ -5,6 +5,13 @@ from modules.utils import parse_signal, get_today_loss, place_order
 from modules.config import MAX_DAILY_LOSS
 from modules.logger_config import logger, error_logger, trade_logger, reversal_logger
 from modules.state import position_state, save_position_state
+import os
+import hmac
+import hashlib
+import json
+import random
+import time
+
 
 def webhook_handler(symbol):
     raw_data = request.get_data(as_text=True)
@@ -55,9 +62,9 @@ def webhook_handler(symbol):
         # Market order
         place_order(symbol, direction, entry, 10, order_type="MARKET", tp=tp1, sl=sl)
         # Limit orders
-        place_order(symbol, direction, zone_start, 10, order_type="LIMIT", tp=tp1, sl=sl)
-        place_order(symbol, direction, zone_middle, 10, order_type="LIMIT", tp=tp1, sl=sl)
-        place_order(symbol, direction, zone_bottom, 20, order_type="LIMIT", tp=tp1, sl=sl)
+        #place_order(symbol, direction, zone_start, 10, order_type="LIMIT", tp=tp1, sl=sl)
+        #place_order(symbol, direction, zone_middle, 10, order_type="LIMIT", tp=tp1, sl=sl)
+        #place_order(symbol, direction, zone_bottom, 20, order_type="LIMIT", tp=tp1, sl=sl)
 
         return jsonify({
             "status": "parsed",
@@ -69,3 +76,37 @@ def webhook_handler(symbol):
     except Exception as e:
         logger.exception("Error in webhook handler")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/debug-signature", methods=["GET"])
+def debug_signature():
+    API_KEY = os.getenv("API_KEY")
+    API_SECRET = os.getenv("API_SECRET")
+    timestamp = str(int(time.time() * 1000))
+    nonce = str(random.randint(1000000000, 4294967295))
+
+    order_data = {
+        "symbol": "BTCUSDT",
+        "price": "95000",
+        "vol": "10",
+        "side": "BUY",
+        "type": "MARKET",
+        "open_type": "ISOLATED",
+        "position_id": 0,
+        "leverage": 20,
+        "external_oid": timestamp,
+        "position_mode": "ONE_WAY"
+    }
+
+    body_json = json.dumps(order_data, separators=(',', ':'))
+    pre_sign = f"{timestamp}{nonce}{body_json}"
+    signature = hmac.new(API_SECRET.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
+
+    return jsonify({
+        "api_key": API_KEY,
+        "timestamp": timestamp,
+        "nonce": nonce,
+        "signature": signature,
+        "pre_sign": pre_sign,
+        "body_json": body_json
+    })

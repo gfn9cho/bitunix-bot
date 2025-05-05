@@ -71,10 +71,10 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=No
     }
 
     # Debug logging
-    logger.info(f"[SIGN DEBUG] pre_sign: {pre_sign}")
-    logger.info(f"[SIGN DEBUG] signature: {signature}")
-    logger.info(f"[SIGN DEBUG] headers: {headers}")
-    logger.info(f"[SIGN DEBUG] body_json: {body_json}")
+    #logger.info(f"[SIGN DEBUG] pre_sign: {pre_sign}")
+    #logger.info(f"[SIGN DEBUG] signature: {signature}")
+    #logger.info(f"[SIGN DEBUG] headers: {headers}")
+    #logger.info(f"[SIGN DEBUG] body_json: {body_json}")
 
     try:
         response = requests.post(f"{BASE_URL}/api/v1/futures/trade/place_order", headers=headers, data=body_json)
