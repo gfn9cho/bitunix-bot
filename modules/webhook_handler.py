@@ -78,6 +78,8 @@ def webhook_handler(symbol):
             "status": "parsed",
             "symbol": symbol,
             "direction": direction,
+            "market_qty": market_qty,
+            "entry": entry,
             "timestamp": datetime.utcnow().isoformat()
         })
 
