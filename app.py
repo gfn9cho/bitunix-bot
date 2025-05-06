@@ -76,14 +76,11 @@ def webhook(symbol):
 
 # WebSocket runner in separate thread-safe asyncio loop
 def start_ws_thread():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    while True:
-        try:
-            loop.run_until_complete(start_websocket_listener())
-        except Exception as e:
-            logger.error(f"[WS THREAD ERROR] Retrying... {e}")
-            time.sleep(5)
+    try:
+        asyncio.run(start_websocket_listener())
+    except Exception as e:
+        logger.error(f"[WS THREAD EXCEPTION] {e}")
+
 
 
 if __name__ == '__main__':

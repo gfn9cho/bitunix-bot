@@ -7,10 +7,13 @@ import random
 import string
 from datetime import datetime
 import logging
-from modules.config import API_KEY, API_SECRET
+from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
 from modules.state import position_state, save_position_state
 from modules.utils import update_profit, update_loss, place_tp_sl_order, modify_tp_sl_order
+import secrets
+import base64
+import requests
 
 __all__ = ["start_websocket_listener", "handle_tp_sl"]
 
