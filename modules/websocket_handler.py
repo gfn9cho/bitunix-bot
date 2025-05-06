@@ -48,7 +48,10 @@ def start_websocket_listener():
                 "sign": signature
             }]
         }
-        threading.Thread(target=send_heartbeat, args=(ws,), daemon=True).start()
+        try:
+            threading.Thread(target=send_heartbeat, args=(ws,), daemon=True).start()
+        except Exception as e:
+            logger.warning("[HEARTBEAT] thread not started before connection")
 
         ws.send(json.dumps(auth_payload))
         logger.info(f"Login payload sent: {auth_payload}")
@@ -66,6 +69,7 @@ def start_websocket_listener():
         logger.info("Subscription payload sent.")
 
     def on_message(ws, message):
+        logger.info(f"[WS MESSAGE] {message}")
         def handle_order(data):
             order_event = data.get("data", {})
             order_status = order_event.get("status")
