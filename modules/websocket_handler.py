@@ -72,27 +72,22 @@ async def start_websocket_listener():
             await websocket.send(json.dumps(login_request))
             logger.info(f"[WS LOGIN SENT] {login_request}")
 
-            # Wait for login response (filter out non-login messages like ping)
+            # Wait for login response, skip over pings
             login_success = False
-            while True:
-                login_response = await websocket.recv()
-                logger.info(f"[WS LOGIN RESPONSE] {login_response}")
+            start = time.time()
+            while time.time() - start < 5:  # timeout after 5 seconds
+                response = await websocket.recv()
+                logger.info(f"[WS LOGIN RESPONSE] {response}")
                 try:
-                    parsed = json.loads(login_response)
-                    if parsed.get("op") == "login":
-                        if parsed.get("data", {}).get("result") is True:
-                            logger.info("[WS LOGIN SUCCESS]")
-                            login_success = True
-                        else:
-                            logger.error(f"[WS LOGIN FAILED] {parsed}")
-                        break  # Either way, exit login loop
-                    else:
-                        logger.debug(f"[WS LOGIN SKIP] Non-login op received: {parsed.get('op')}")
+                    parsed = json.loads(response)
+                    if parsed.get("op") == "login" and parsed.get("data", {}).get("result") is True:
+                        logger.info("[WS LOGIN SUCCESS]")
+                        login_success = True
+                        break
                 except Exception as e:
-                    logger.error(f"[WS LOGIN PARSE ERROR] {e}")
-                    break
-
+                    logger.warning(f"[WS LOGIN PARSE FAIL] {e}")
             if not login_success:
+                logger.error("[WS LOGIN FAILED] No valid login response")
                 return
 
             # Validate login success before proceeding
