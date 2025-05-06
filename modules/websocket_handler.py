@@ -27,12 +27,12 @@ def start_websocket_listener():
 
         auth_payload = {
             "op": "login",
-            "args": {
+            "args": [{
                 "apiKey": API_KEY,
                 "timestamp": timestamp,
                 "nonce": nonce,
                 "sign": signature
-            }
+            }]
         }
 
         ws.send(json.dumps(auth_payload))
