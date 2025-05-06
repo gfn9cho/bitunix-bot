@@ -19,8 +19,7 @@ def start_websocket_listener():
     def send_heartbeat(ws):
         while True:
             try:
-                ping_msg = json.dumps({"op": "ping", "ping": int(time.time())})
-                ws.send(ping_msg)
+                ws.send(json.dumps({"op": "ping", "ping": int(time.time())}))
                 logger.debug("[HEARTBEAT] Sent ping")
                 time.sleep(30)
             except Exception as e:
@@ -72,6 +71,7 @@ def start_websocket_listener():
             order_status = order_event.get("status")
             order_id = order_event.get("orderId")
             symbol = order_event.get("symbol", "BTCUSDT")
+            logger.info(f"[WS MESSAGE] {message}")
 
             if order_status == "FILLED":
                 logger.info(f"Order filled for {symbol}: {order_event}")
