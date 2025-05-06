@@ -20,7 +20,7 @@ __all__ = ["start_websocket_listener", "handle_tp_sl"]
 
 
 def generate_signature(api_key, secret_key, nonce):
-    timestamp = int(time.time())  # MUST be int, not str
+    timestamp = str(int(time.time()))  # MUST be int, not str
     pre_sign = f"{nonce}{timestamp}{api_key}"
     sign = hashlib.sha256(pre_sign.encode()).hexdigest()
     final_sign = hashlib.sha256((sign + secret_key).encode()).hexdigest()
@@ -65,9 +65,9 @@ async def start_websocket_listener():
                         "apiKey": API_KEY,
                         "timestamp": timestamp,
                         "nonce": nonce,
-                        "sign": sign
+                        "sign": sign,
                     }
-                ]
+                ],
             }
             await websocket.send(json.dumps(login_request))
             logger.info(f"[WS LOGIN SENT] {login_request}")
