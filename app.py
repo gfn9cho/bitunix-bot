@@ -15,8 +15,21 @@ import random
 import time
 import base64
 import secrets
+import asyncio
+import threading
+from modules.websocket_handler import start_websocket_listener
 
 app = Flask(__name__)
+
+
+
+def start_ws_thread():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(start_websocket_listener())
+
+threading.Thread(target=start_ws_thread, daemon=True).start()
+
 
 @app.route("/debug-signature", methods=["GET"])
 def debug_signature():
