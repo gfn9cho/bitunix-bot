@@ -3,7 +3,7 @@ import ssl
 import json
 import time
 import hashlib
-import logging
+import threading
 import requests
 from datetime import datetime
 import base64
@@ -16,9 +16,19 @@ from modules.utils import update_profit, update_loss, place_tp_sl_order, modify_
 __all__ = ["start_websocket_listener", "handle_tp_sl"]
 
 def start_websocket_listener():
+    def send_heartbeat(ws):
+        while True:
+            try:
+                ping_msg = json.dumps({"op": "ping", "ping": int(time.time())})
+                ws.send(ping_msg)
+                logger.debug("[HEARTBEAT] Sent ping")
+                time.sleep(30)
+            except Exception as e:
+                logger.warning(f"[HEARTBEAT] Failed to send ping: {e}")
+                break
     def on_open(ws):
         logger.info("WebSocket opened. Sending login request.")
-
+        threading.Thread(target=send_heartbeat, args=(ws,), daemon=True).start()
         timestamp = str(int(time.time()))  # seconds
         nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
