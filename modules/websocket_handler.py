@@ -16,23 +16,28 @@ from modules.utils import update_profit, update_loss, place_tp_sl_order, modify_
 __all__ = ["start_websocket_listener", "handle_tp_sl"]
 
 def start_websocket_listener():
+    def generate_signature(api_key, secret_key, nonce, timestamp):
+        pre_sign = f"{nonce}{timestamp}{api_key}"
+        first_hash = hashlib.sha256(pre_sign.encode()).hexdigest()
+        final_sign = hashlib.sha256((first_hash + secret_key).encode()).hexdigest()
+        return final_sign
+
     def send_heartbeat(ws):
         while True:
             try:
                 ws.send(json.dumps({"op": "ping", "ping": int(time.time())}))
                 logger.debug("[HEARTBEAT] Sent ping")
-                time.sleep(30)
+                time.sleep(20)
             except Exception as e:
                 logger.warning(f"[HEARTBEAT] Failed to send ping: {e}")
                 break
+
     def on_open(ws):
         logger.info("WebSocket opened. Sending login request.")
-        threading.Thread(target=send_heartbeat, args=(ws,), daemon=True).start()
-        timestamp = str(int(time.time()))  # seconds
-        nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
-        digest = hashlib.sha256((nonce + timestamp + API_KEY).encode()).hexdigest()
-        signature = hashlib.sha256((digest + API_SECRET).encode()).hexdigest()
+        timestamp = str(int(time.time()))  # seconds
+        nonce = ''.join(secrets.choice('abcdefghijklmnopqrstuvwxyz0123456789') for _ in range(32))
+        signature = generate_signature(API_KEY, API_SECRET, nonce, timestamp)
 
         auth_payload = {
             "op": "login",
@@ -43,6 +48,7 @@ def start_websocket_listener():
                 "sign": signature
             }]
         }
+        threading.Thread(target=send_heartbeat, args=(ws,), daemon=True).start()
 
         ws.send(json.dumps(auth_payload))
         logger.info(f"Login payload sent: {auth_payload}")
@@ -50,15 +56,9 @@ def start_websocket_listener():
         subscribe_payload = {
             "op": "subscribe",
             "args": [
-                {
-                    "ch": "order"
-                },
-                {
-                    "ch": "position"
-                },
-                {
-                    "ch": "tp_sl"
-                }
+                {"ch": "order"},
+                {"ch": "position"},
+                {"ch": "tp_sl"}
             ]
         }
 
