@@ -77,26 +77,29 @@ async def start_websocket_listener():
             start = time.time()
             while time.time() - start < 5:  # timeout after 5 seconds
                 response = await websocket.recv()
-                logger.info(f"[WS LOGIN RESPONSE] {response}")
                 try:
                     parsed = json.loads(response)
-                    if parsed.get("op") == "login" and parsed.get("data", {}).get("result") is True:
-                        logger.info("[WS LOGIN SUCCESS]")
-                        login_success = True
-                        break
+                    if parsed.get("op") == "login":
+                        logger.info(f"[WS LOGIN RESPONSE] {response}")
+                        if parsed.get("data", {}).get("result") is True:
+                            logger.info("[WS LOGIN SUCCESS]")
+                            login_success = True
+                            break
+                        else:
+                            logger.error(f"[WS LOGIN FAILED] {parsed}")
+                            return
+                    elif parsed.get("op") == "ping":
+                        logger.debug(f"[WS PING SKIPPED] {response}")
+                    else:
+                        logger.debug(f"[WS OTHER SKIPPED] {response}")
                 except Exception as e:
                     logger.warning(f"[WS LOGIN PARSE FAIL] {e}")
+
             if not login_success:
                 logger.error("[WS LOGIN FAILED] No valid login response")
                 return
 
-            # Validate login success before proceeding
-            try:
-                login_data = json.loads(login_response)
-                if login_data.get("op") == "login" and login_data.get("data", {}).get("result") is True:
-                    logger.info("[WS LOGIN SUCCESS]")
-
-                    subscribe_request = {
+            subscribe_request = {
                         "op": "subscribe",
                         "args": [
                             {"ch": "order"},
@@ -104,23 +107,16 @@ async def start_websocket_listener():
                             {"ch": "tp_sl"}
                         ]
                     }
-                    await websocket.send(json.dumps(subscribe_request))
-                    logger.info("[WS SUBSCRIBE SENT]")
-                else:
-                    logger.error(f"[WS LOGIN FAILED] {login_data}")
-                    return  # Exit the coroutine if login fails
-            except Exception as parse_err:
-                logger.error(f"[WS LOGIN PARSE ERROR] {parse_err}")
-                return
-
-
-    # Step 5: Start receiving
-            while True:
-                message = await websocket.recv()
-                logger.info(f"[WS MESSAGE] {message}")
-                await handle_ws_message(message)
-    except Exception as e:
-        logger.error(f"[WS CONNECTION ERROR] {e}")
+            await websocket.send(json.dumps(subscribe_request))
+            try:
+                while True:
+                    message = await websocket.recv()
+                    logger.info(f"[WS MESSAGE] {message}")
+                    await handle_ws_message(message)
+            except Exception as e:
+                logger.error(f"[WS ERROR] {e}")
+    except Exception as outer_e:
+        logger.error(f"[WS CONNECTION ERROR] {outer_e}")
 
 
 async def handle_ws_message(message):
