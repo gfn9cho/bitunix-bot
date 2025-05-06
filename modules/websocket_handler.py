@@ -38,6 +38,7 @@ async def send_heartbeat(websocket):
             break
 
 async def start_websocket_listener():
+    print("WS launched")
     ws_url = "wss://fapi.bitunix.com/private/"
     nonce = generate_nonce()
     sign, timestamp = generate_signature(API_KEY, API_SECRET, nonce)

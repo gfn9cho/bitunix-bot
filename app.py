@@ -1,18 +1,33 @@
 from flask import Flask, request, jsonify
 from modules.webhook_handler import webhook_handler
-from modules.websocket_handler import start_websocket_listener, handle_tp_sl
 from modules.logger_config import logger
+from modules.websocket_handler import start_websocket_listener, handle_tp_sl
 import threading
 import asyncio
 import os
-import time
 import json
+import time
+import hmac
 import base64
 import secrets
-import hmac
 
 app = Flask(__name__)
 
+
+# --- Launch WebSocket Listener Correctly ---
+def start_ws_listener():
+    try:
+        logger.info("[INIT] Starting WebSocket listener via asyncio.run")
+        asyncio.run(start_websocket_listener())
+    except Exception as e:
+        logger.error(f"[WS THREAD ERROR] {e}")
+
+
+# Start listener before Flask app
+threading.Thread(target=start_ws_listener, daemon=True).start()
+
+
+# --- Debug Signature Endpoint ---
 @app.route("/debug-signature", methods=["GET"])
 def debug_signature():
     API_KEY = os.getenv("API_KEY")
@@ -35,7 +50,7 @@ def debug_signature():
 
     body_json = json.dumps(order_data, separators=(',', ':'))
     pre_sign = f"{timestamp}{nonce}{body_json}"
-    signature = hmac.new(API_SECRET.encode(), pre_sign.encode(), digestmod="sha256").hexdigest()
+    signature = hmac.new(API_SECRET.encode(), pre_sign.encode(), digestmod='sha256').hexdigest()
 
     return jsonify({
         "api_key": API_KEY,
@@ -46,6 +61,8 @@ def debug_signature():
         "body_json": body_json
     })
 
+
+# --- Simulated TP Trigger ---
 @app.route("/simulate-tp", methods=["POST"])
 def simulate_tp():
     try:
@@ -70,19 +87,13 @@ def simulate_tp():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+# --- Webhook Route ---
 @app.route('/webhook/<symbol>', methods=['POST'])
 def webhook(symbol):
     return webhook_handler(symbol)
 
-# WebSocket runner in separate thread-safe asyncio loop
-def start_ws_thread():
-    try:
-        asyncio.run(start_websocket_listener())
-    except Exception as e:
-        logger.error(f"[WS THREAD EXCEPTION] {e}")
 
-
-
+# --- Start Flask ---
 if __name__ == '__main__':
-    threading.Thread(target=start_ws_thread, daemon=True).start()
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+    app.run(host='0.0.0.0', port=5000)
