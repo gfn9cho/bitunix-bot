@@ -1,70 +1,62 @@
-import websocket
-import ssl
-import json
-import time
+import asyncio
+import websockets
 import hashlib
-import threading
-import requests
+import time
+import json
+import random
+import string
 from datetime import datetime
-import base64
-import secrets
-from modules.config import API_KEY, API_SECRET, BASE_URL
-from modules.logger_config import logger, error_logger
+import logging
+from modules.config import API_KEY, API_SECRET
+from modules.logger_config import logger
 from modules.state import position_state, save_position_state
 from modules.utils import update_profit, update_loss, place_tp_sl_order, modify_tp_sl_order
 
 __all__ = ["start_websocket_listener", "handle_tp_sl"]
 
-def generate_signature(api_key, secret_key, nonce, timestamp):
+def generate_signature(api_key, secret_key, nonce):
+    timestamp = int(time.time())
     pre_sign = f"{nonce}{timestamp}{api_key}"
-    first_hash = hashlib.sha256(pre_sign.encode()).hexdigest()
-    final_sign = hashlib.sha256((first_hash + secret_key).encode()).hexdigest()
-    return final_sign
+    sign = hashlib.sha256(pre_sign.encode()).hexdigest()
+    final_sign = hashlib.sha256((sign + secret_key).encode()).hexdigest()
+    return final_sign, timestamp
 
-def send_heartbeat(ws, ready_event):
-    try:
-        ws.send(json.dumps({"op": "ping", "ping": int(time.time())}))
-        logger.debug("[HEARTBEAT] Sent initial ping")
-        ready_event.set()
-    except Exception as e:
-        logger.warning(f"[HEARTBEAT] Initial ping failed: {e}")
-        return
+def generate_nonce(length=32):
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
+async def send_heartbeat(websocket):
     while True:
         try:
-            time.sleep(20)
-            ws.send(json.dumps({"op": "ping", "ping": int(time.time())}))
-            logger.debug("[HEARTBEAT] Sent periodic ping")
+            await websocket.send(json.dumps({"op": "ping", "ping": int(time.time())}))
+            logger.debug("[HEARTBEAT] Ping sent")
+            await asyncio.sleep(20)
         except Exception as e:
             logger.warning(f"[HEARTBEAT] Failed to send ping: {e}")
             break
 
-def start_websocket_listener():
-    def on_open(ws):
-        logger.info("WebSocket opened. Preparing login request.")
+async def start_websocket_listener():
+    ws_url = "wss://fapi.bitunix.com/private/"
+    nonce = generate_nonce()
+    sign, timestamp = generate_signature(API_KEY, API_SECRET, nonce)
 
-        timestamp = str(int(time.time()))
-        nonce = ''.join(secrets.choice('abcdefghijklmnopqrstuvwxyz0123456789') for _ in range(32))
-        signature = generate_signature(API_KEY, API_SECRET, nonce, timestamp)
+    async with websockets.connect(ws_url, ping_interval=None) as websocket:
+        await asyncio.create_task(send_heartbeat(websocket))
 
-        auth_payload = {
+        login_request = {
             "op": "login",
-            "args": [{
-                "apiKey": API_KEY,
-                "timestamp": timestamp,
-                "nonce": nonce,
-                "sign": signature
-            }]
+            "args": [
+                {
+                    "apiKey": API_KEY,
+                    "timestamp": timestamp,
+                    "nonce": nonce,
+                    "sign": sign,
+                }
+            ],
         }
+        await websocket.send(json.dumps(login_request))
+        logger.info(f"Login payload sent: {login_request}")
 
-        heartbeat_started = threading.Event()
-        threading.Thread(target=send_heartbeat, args=(ws, heartbeat_started), daemon=True).start()
-        heartbeat_started.wait(timeout=5)
-
-        ws.send(json.dumps(auth_payload))
-        logger.info(f"Login payload sent: {auth_payload}")
-
-        subscribe_payload = {
+        subscribe_request = {
             "op": "subscribe",
             "args": [
                 {"ch": "order"},
@@ -72,18 +64,29 @@ def start_websocket_listener():
                 {"ch": "tp_sl"}
             ]
         }
-
-        ws.send(json.dumps(subscribe_payload))
+        await websocket.send(json.dumps(subscribe_request))
         logger.info("Subscription payload sent.")
 
-    def on_message(ws, message):
-        logger.info(f"[WS MESSAGE] {message}")
-        def handle_order(data):
+        try:
+            while True:
+                message = await websocket.recv()
+                logger.info(f"[WS MESSAGE] {message}")
+                await handle_ws_message(message)
+        except Exception as e:
+            logger.error(f"[WS ERROR] {e}")
+
+async def handle_ws_message(message):
+    try:
+        data = json.loads(message)
+        topic = data.get("topic")
+
+        if topic == "futures.tp_sl":
+            handle_tp_sl(data)
+        elif topic == "futures.order":
             order_event = data.get("data", {})
             order_status = order_event.get("status")
             order_id = order_event.get("orderId")
             symbol = order_event.get("symbol", "BTCUSDT")
-            logger.info(f"[WS MESSAGE] {message}")
 
             if order_status == "FILLED":
                 logger.info(f"Order filled for {symbol}: {order_event}")
@@ -102,42 +105,10 @@ def start_websocket_listener():
                         place_tp_sl_order(symbol=symbol, tp_price=tp1, position_id=position_id, qty=market_qty)
                         logger.info(f"Placed TP1 for {symbol} at {tp1} with qty {market_qty} and positionId {position_id}")
                 save_position_state()
-
-        try:
-            data = json.loads(message)
-            topic = data.get("topic")
-
-            if topic == "futures.tp_sl":
-                handle_tp_sl(data)
-            elif topic == "futures.order":
-                handle_order(data)
-
-        except Exception as e:
-            error_logger.error(json.dumps({"timestamp": datetime.utcnow().isoformat(), "error": str(e)}))
-            logger.error(f"WebSocket message handler error: {str(e)}")
-
-    def on_error(ws, error):
-        logger.error(f"WebSocket error: {error}")
-
-    def on_close(ws, close_status_code, close_msg):
-        logger.warning(f"WebSocket closed: {close_status_code} - {close_msg}")
-
-    while True:
-        try:
-            ws = websocket.WebSocketApp(
-                "wss://fapi.bitunix.com/private/",
-                on_open=on_open,
-                on_message=on_message,
-                on_error=on_error,
-                on_close=on_close
-            )
-            ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
-        except Exception as e:
-            logger.error(f"WebSocket connection error, retrying: {e}")
-            time.sleep(5)
+    except Exception as e:
+        logger.error(f"WebSocket message handler error: {str(e)}")
 
 def handle_tp_sl(data):
-    """Expose TP handler for use in test/simulation endpoints."""
     tp_event = data.get("data", {})
     tp_price_hit = float(tp_event.get("triggerPrice", 0))
     symbol = tp_event.get("symbol", "BTCUSDT")
