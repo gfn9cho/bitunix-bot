@@ -15,27 +15,35 @@ from modules.utils import update_profit, update_loss, place_tp_sl_order, modify_
 
 __all__ = ["start_websocket_listener", "handle_tp_sl"]
 
+def generate_signature(api_key, secret_key, nonce, timestamp):
+    pre_sign = f"{nonce}{timestamp}{api_key}"
+    first_hash = hashlib.sha256(pre_sign.encode()).hexdigest()
+    final_sign = hashlib.sha256((first_hash + secret_key).encode()).hexdigest()
+    return final_sign
+
+def send_heartbeat(ws, ready_event):
+    try:
+        ws.send(json.dumps({"op": "ping", "ping": int(time.time())}))
+        logger.debug("[HEARTBEAT] Sent initial ping")
+        ready_event.set()
+    except Exception as e:
+        logger.warning(f"[HEARTBEAT] Initial ping failed: {e}")
+        return
+
+    while True:
+        try:
+            time.sleep(20)
+            ws.send(json.dumps({"op": "ping", "ping": int(time.time())}))
+            logger.debug("[HEARTBEAT] Sent periodic ping")
+        except Exception as e:
+            logger.warning(f"[HEARTBEAT] Failed to send ping: {e}")
+            break
+
 def start_websocket_listener():
-    def generate_signature(api_key, secret_key, nonce, timestamp):
-        pre_sign = f"{nonce}{timestamp}{api_key}"
-        first_hash = hashlib.sha256(pre_sign.encode()).hexdigest()
-        final_sign = hashlib.sha256((first_hash + secret_key).encode()).hexdigest()
-        return final_sign
-
-    def send_heartbeat(ws):
-        while True:
-            try:
-                ws.send(json.dumps({"op": "ping", "ping": int(time.time())}))
-                logger.debug("[HEARTBEAT] Sent ping")
-                time.sleep(20)
-            except Exception as e:
-                logger.warning(f"[HEARTBEAT] Failed to send ping: {e}")
-                break
-
     def on_open(ws):
-        logger.info("WebSocket opened. Sending login request.")
+        logger.info("WebSocket opened. Preparing login request.")
 
-        timestamp = str(int(time.time()))  # seconds
+        timestamp = str(int(time.time()))
         nonce = ''.join(secrets.choice('abcdefghijklmnopqrstuvwxyz0123456789') for _ in range(32))
         signature = generate_signature(API_KEY, API_SECRET, nonce, timestamp)
 
@@ -48,10 +56,10 @@ def start_websocket_listener():
                 "sign": signature
             }]
         }
-        try:
-            threading.Thread(target=send_heartbeat, args=(ws,), daemon=True).start()
-        except Exception as e:
-            logger.warning("[HEARTBEAT] thread not started before connection")
+
+        heartbeat_started = threading.Event()
+        threading.Thread(target=send_heartbeat, args=(ws, heartbeat_started), daemon=True).start()
+        heartbeat_started.wait(timeout=5)
 
         ws.send(json.dumps(auth_payload))
         logger.info(f"Login payload sent: {auth_payload}")
