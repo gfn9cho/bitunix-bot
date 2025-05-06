@@ -40,7 +40,17 @@ def start_websocket_listener():
 
         subscribe_payload = {
             "op": "subscribe",
-            "args": ["position", "tp_sl", "order"]
+            "args": [
+                {
+                    "ch": "order"
+                },
+                {
+                    "ch": "position"
+                },
+                {
+                    "ch": "tp_sl"
+                }
+            ]
         }
 
         ws.send(json.dumps(subscribe_payload))
