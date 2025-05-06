@@ -1,44 +1,24 @@
-
-from flask import Flask, jsonify
-import threading
+from flask import Flask, request, jsonify
 from modules.webhook_handler import webhook_handler
-from modules.logger_config import logger, trade_logger, error_logger, reversal_logger
-from modules.config import API_KEY, API_SECRET, BASE_URL, POSITION_SIZE, LEVERAGE, MAX_DAILY_LOSS
-from modules.utils import parse_signal, calculate_zone_entries, calculate_quantities, update_loss, get_today_loss
-from flask import request, jsonify
-from modules.websocket_handler import handle_tp_sl
-from threading import Thread
+from modules.websocket_handler import start_websocket_listener, handle_tp_sl
+from modules.logger_config import logger
+import threading
+import asyncio
 import os
-import hmac
-import hashlib
-import json
-import random
 import time
+import json
 import base64
 import secrets
-import asyncio
-import threading
-from modules.websocket_handler import start_websocket_listener
+import hmac
 
 app = Flask(__name__)
-
-
-
-def start_ws_thread():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(start_websocket_listener())
-
-threading.Thread(target=start_ws_thread, daemon=True).start()
-
 
 @app.route("/debug-signature", methods=["GET"])
 def debug_signature():
     API_KEY = os.getenv("API_KEY")
     API_SECRET = os.getenv("API_SECRET")
     timestamp = str(int(time.time() * 1000))
-    random_bytes = secrets.token_bytes(32)
-    nonce = base64.b64encode(random_bytes).decode('utf-8')
+    nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
     order_data = {
         "symbol": "BTCUSDT",
@@ -55,7 +35,7 @@ def debug_signature():
 
     body_json = json.dumps(order_data, separators=(',', ':'))
     pre_sign = f"{timestamp}{nonce}{body_json}"
-    signature = hmac.new(API_SECRET.encode('utf-8'), pre_sign.encode('utf-8'), hashlib.sha256).hexdigest()
+    signature = hmac.new(API_SECRET.encode(), pre_sign.encode(), digestmod="sha256").hexdigest()
 
     return jsonify({
         "api_key": API_KEY,
@@ -65,8 +45,6 @@ def debug_signature():
         "pre_sign": pre_sign,
         "body_json": body_json
     })
-
-
 
 @app.route("/simulate-tp", methods=["POST"])
 def simulate_tp():
@@ -96,7 +74,12 @@ def simulate_tp():
 def webhook(symbol):
     return webhook_handler(symbol)
 
+# WebSocket runner in separate thread-safe asyncio loop
+def run_ws_listener():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(start_websocket_listener())
+
 if __name__ == '__main__':
-    ws_thread = threading.Thread(target=start_websocket_listener, daemon=True)
-    ws_thread.start()
-    app.run(host='0.0.0.0', port=5000)
+    threading.Thread(target=run_ws_listener, daemon=True).start()
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
