@@ -54,9 +54,6 @@ async def start_websocket_listener():
             connect_msg = await websocket.recv()
             logger.info(f"[WS CONNECT] {connect_msg}")
 
-            # Step 2: Start heartbeat
-            asyncio.create_task(send_heartbeat(websocket))
-
             # Step 3: Send login
             login_request = {
                 "op": "login",
@@ -71,33 +68,37 @@ async def start_websocket_listener():
             }
             await websocket.send(json.dumps(login_request))
             logger.info(f"[WS LOGIN SENT] {login_request}")
+            response = await websocket.recv()
+            print("Login Response:", response)
+            # Step 2: Start heartbeat
+            asyncio.create_task(send_heartbeat(websocket))
 
-            # Wait for login response, skip over pings
-            login_success = False
-            start = time.time()
-            while time.time() - start < 5:  # timeout after 5 seconds
-                response = await websocket.recv()
-                try:
-                    parsed = json.loads(response)
-                    if parsed.get("op") == "login":
-                        logger.info(f"[WS LOGIN RESPONSE] {response}")
-                        if parsed.get("data", {}).get("result") is True:
-                            logger.info("[WS LOGIN SUCCESS]")
-                            login_success = True
-                            break
-                        else:
-                            logger.error(f"[WS LOGIN FAILED] {parsed}")
-                            return
-                    elif parsed.get("op") == "ping":
-                        logger.debug(f"[WS PING SKIPPED] {response}")
-                    else:
-                        logger.debug(f"[WS OTHER SKIPPED] {response}")
-                except Exception as e:
-                    logger.warning(f"[WS LOGIN PARSE FAIL] {e}")
-
-            if not login_success:
-                logger.error("[WS LOGIN FAILED] No valid login response")
-                return
+            # # Wait for login response, skip over pings
+            # login_success = False
+            # start = time.time()
+            # while time.time() - start < 10:  # timeout after 5 seconds
+            #     response = await websocket.recv()
+            #     try:
+            #         parsed = json.loads(response)
+            #         if parsed.get("op") == "login":
+            #             logger.info(f"[WS LOGIN RESPONSE] {response}")
+            #             if parsed.get("data", {}).get("result") is True:
+            #                 logger.info("[WS LOGIN SUCCESS]")
+            #                 login_success = True
+            #                 break
+            #             else:
+            #                 logger.error(f"[WS LOGIN FAILED] {parsed}")
+            #                 return
+            #         elif parsed.get("op") == "ping":
+            #             logger.debug(f"[WS PING SKIPPED] {response}")
+            #         else:
+            #             logger.debug(f"[WS OTHER SKIPPED] {response}")
+            #     except Exception as e:
+            #         logger.warning(f"[WS LOGIN PARSE FAIL] {e}")
+            #
+            # if not login_success:
+            #     logger.error("[WS LOGIN FAILED] No valid login response")
+            #     return
 
             subscribe_request = {
                         "op": "subscribe",
