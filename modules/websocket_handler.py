@@ -15,17 +15,21 @@ import secrets
 import base64
 import requests
 
+
 __all__ = ["start_websocket_listener", "handle_tp_sl"]
 
+
 def generate_signature(api_key, secret_key, nonce):
-    timestamp = int(time.time())
+    timestamp = int(time.time())  # MUST be int, not str
     pre_sign = f"{nonce}{timestamp}{api_key}"
     sign = hashlib.sha256(pre_sign.encode()).hexdigest()
     final_sign = hashlib.sha256((sign + secret_key).encode()).hexdigest()
     return final_sign, timestamp
 
+
 def generate_nonce(length=32):
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+
 
 async def send_heartbeat(websocket):
     while True:
