@@ -54,10 +54,7 @@ async def start_websocket_listener():
             connect_msg = await websocket.recv()
             logger.info(f"[WS CONNECT] {connect_msg}")
 
-            # Step 2: Start heartbeat
-            asyncio.create_task(send_heartbeat(websocket))
-
-            # Step 3: Send login
+            # Step 2: Send login
             login_request = {
                 "op": "login",
                 "args": [
@@ -74,6 +71,9 @@ async def start_websocket_listener():
 
             login_response = await websocket.recv()
             logger.info(f"[WS LOGIN RESPONSE] {login_response}")
+
+            # Step 3: Start heartbeat
+            asyncio.create_task(send_heartbeat(websocket))
 
             # Validate login success before proceeding
             try:
