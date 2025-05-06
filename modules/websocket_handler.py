@@ -38,46 +38,59 @@ async def send_heartbeat(websocket):
             break
 
 async def start_websocket_listener():
-    print("WS launched")
     ws_url = "wss://fapi.bitunix.com/private/"
     nonce = generate_nonce()
     sign, timestamp = generate_signature(API_KEY, API_SECRET, nonce)
 
-    async with websockets.connect(ws_url, ping_interval=None) as websocket:
-        await asyncio.create_task(send_heartbeat(websocket))
+    try:
+        async with websockets.connect(ws_url, ping_interval=None) as websocket:
+            logger.info("WS launched")
 
-        login_request = {
-            "op": "login",
-            "args": [
-                {
-                    "apiKey": API_KEY,
-                    "timestamp": timestamp,
-                    "nonce": nonce,
-                    "sign": sign,
-                }
-            ],
-        }
-        await websocket.send(json.dumps(login_request))
-        logger.info(f"Login payload sent: {login_request}")
+            # Step 1: Wait for connect confirmation
+            connect_msg = await websocket.recv()
+            logger.info(f"[WS CONNECT] {connect_msg}")
 
-        subscribe_request = {
-            "op": "subscribe",
-            "args": [
-                {"ch": "order"},
-                {"ch": "position"},
-                {"ch": "tp_sl"}
-            ]
-        }
-        await websocket.send(json.dumps(subscribe_request))
-        logger.info("Subscription payload sent.")
+            # Step 2: Start heartbeat
+            asyncio.create_task(send_heartbeat(websocket))
 
-        try:
+            # Step 3: Send login
+            login_request = {
+                "op": "login",
+                "args": [
+                    {
+                        "apiKey": API_KEY,
+                        "timestamp": timestamp,
+                        "nonce": nonce,
+                        "sign": sign,
+                    }
+                ],
+            }
+            await websocket.send(json.dumps(login_request))
+            logger.info(f"[WS LOGIN SENT] {login_request}")
+
+            login_response = await websocket.recv()
+            logger.info(f"[WS LOGIN RESPONSE] {login_response}")
+
+            # Step 4: Subscribe
+            subscribe_request = {
+                "op": "subscribe",
+                "args": [
+                    {"ch": "order"},
+                    {"ch": "position"},
+                    {"ch": "tp_sl"}
+                ]
+            }
+            await websocket.send(json.dumps(subscribe_request))
+            logger.info("[WS SUBSCRIBE SENT]")
+
+            # Step 5: Start receiving
             while True:
                 message = await websocket.recv()
                 logger.info(f"[WS MESSAGE] {message}")
                 await handle_ws_message(message)
-        except Exception as e:
-            logger.error(f"[WS ERROR] {e}")
+    except Exception as e:
+        logger.error(f"[WS CONNECTION ERROR] {e}")
+
 
 async def handle_ws_message(message):
     try:
