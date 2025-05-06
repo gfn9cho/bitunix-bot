@@ -90,11 +90,11 @@ def webhook_handler(symbol):
             )
 
             # Place initial TP order to close 70% at TP1
-            tp_qty = round(market_qty * 0.7, 6)
-            logger.info(f"[TP SL SETUP] Setting TP1 at {tp1} for 70% of market position")
-            place_tp_sl_order(symbol=symbol, tp_price=tp1)
-            logger.info(f"[TP1 READY] TP SL order placed for {symbol} at price {tp1}")
-            logger.info(f"[TP LOGGED] Setting initial TP, waiting to log P&L when filled")
+            #tp_qty = round(market_qty * 0.7, 6)
+            #logger.info(f"[TP SL SETUP] Setting TP1 at {tp1} for 70% of market position")
+            #place_tp_sl_order(symbol=symbol, tp_price=tp1)
+            #logger.info(f"[TP1 READY] TP SL order placed for {symbol} at price {tp1}")
+            #logger.info(f"[TP LOGGED] Setting initial TP, waiting to log P&L when filled")
 
             if response and response.get("code", -1) == 0:
                 logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")

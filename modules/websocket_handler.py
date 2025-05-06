@@ -69,12 +69,11 @@ def start_websocket_listener():
                 state["filled_orders"].add(order_id)
                 if state.get("step", 0) == 0:
                     tp1 = state.get("tps", [])[0]
+                    market_qty = state.get("qty_distribution", [0.7])[0]
                     position_id = order_event.get("positionId")
-                    qty_distribution = state.get("qty_distribution", [0])
-                    qty = round(qty_distribution[0] * 0.7, 6) if len(qty_distribution) > 0 else None
-                    if qty:
-                        place_tp_sl_order(symbol, tp1, position_id, qty)
-                        logger.info(f"Placed TP1 for {symbol} at {tp1} with qty {qty}")
+                    if position_id:
+                        place_tp_sl_order(symbol=symbol, tp_price=tp1, position_id=position_id, qty=market_qty)
+                        logger.info(f"Placed TP1 for {symbol} at {tp1} with qty {market_qty} and positionId {position_id}")
                 save_position_state()
 
         try:
@@ -105,11 +104,11 @@ def start_websocket_listener():
                 on_error=on_error,
                 on_close=on_close
             )
-            logger.info("Starting WebSocket connection...")
             ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
         except Exception as e:
             logger.error(f"WebSocket connection error, retrying: {e}")
             time.sleep(5)
+
 
 def handle_tp_sl(data):
     """Expose TP handler for use in test/simulation endpoints."""
@@ -117,11 +116,11 @@ def handle_tp_sl(data):
     tp_event = data.get("data", {})
     tp_price_hit = float(tp_event.get("triggerPrice", 0))
     symbol = tp_event.get("symbol", "BTCUSDT")
-    order_id = tp_event.get("orderId")
     state = position_state.get(symbol, {})
 
     logger.info(f"TP trigger detected for {symbol} at price: {tp_price_hit}")
 
+    # Compute P&L based on trigger direction (TP or SL)
     try:
         step = state.get("step", 0)
         entry_price = state.get("entry_price")
@@ -141,7 +140,6 @@ def handle_tp_sl(data):
     except Exception as e:
         logger.warning(f"[P&L LOGGING FAILED] Could not log profit for {symbol}: {str(e)}")
 
-    state = position_state.get(symbol, {})
     tps = state.get("tps", [])
     step = state.get("step", 0)
 
@@ -155,6 +153,7 @@ def handle_tp_sl(data):
 
     logger.info(f"Step {step} hit. New SL: {new_sl}, Next TP: {new_tp}")
 
+    # Cancel all limit orders if TP1 is hit
     if step == 0:
         try:
             random_bytes = secrets.token_bytes(32)
@@ -182,12 +181,10 @@ def handle_tp_sl(data):
             cancel_resp.raise_for_status()
             logger.info(f"[LIMIT ORDERS CANCELLED] {cancel_resp.json()}")
         except Exception as cancel_err:
-            logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
+            logger.error(f"[CANCEL LIMIT ORDERS FAILED] {str(cancel_err)}")
 
     if new_tp:
-        qty_distribution = state.get("qty_distribution", [1])
-        qty = qty_distribution[step] if step < len(qty_distribution) else 0
-        modify_tp_sl_order(symbol, new_tp, new_sl, order_id, qty)
+        modify_tp_sl_order(symbol, new_tp, new_sl)
 
     state["step"] = next_step
     save_position_state()
