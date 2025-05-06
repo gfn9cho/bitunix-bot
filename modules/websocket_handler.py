@@ -43,7 +43,8 @@ async def send_heartbeat(websocket):
 
 async def start_websocket_listener():
     ws_url = "wss://fapi.bitunix.com/private/"
-    nonce = generate_nonce()
+    #nonce = generate_nonce()
+    nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
     sign, timestamp = generate_signature(API_KEY, API_SECRET, nonce)
 
     try:
