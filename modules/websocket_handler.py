@@ -54,7 +54,10 @@ async def start_websocket_listener():
             connect_msg = await websocket.recv()
             logger.info(f"[WS CONNECT] {connect_msg}")
 
-            # Step 2: Send login
+            # Step 2: Start heartbeat
+            asyncio.create_task(send_heartbeat(websocket))
+
+            # Step 3: Send login
             login_request = {
                 "op": "login",
                 "args": [
@@ -69,11 +72,28 @@ async def start_websocket_listener():
             await websocket.send(json.dumps(login_request))
             logger.info(f"[WS LOGIN SENT] {login_request}")
 
-            login_response = await websocket.recv()
-            logger.info(f"[WS LOGIN RESPONSE] {login_response}")
+            # Wait for login response (filter out non-login messages like ping)
+            login_success = False
+            while True:
+                login_response = await websocket.recv()
+                logger.info(f"[WS LOGIN RESPONSE] {login_response}")
+                try:
+                    parsed = json.loads(login_response)
+                    if parsed.get("op") == "login":
+                        if parsed.get("data", {}).get("result") is True:
+                            logger.info("[WS LOGIN SUCCESS]")
+                            login_success = True
+                        else:
+                            logger.error(f"[WS LOGIN FAILED] {parsed}")
+                        break  # Either way, exit login loop
+                    else:
+                        logger.debug(f"[WS LOGIN SKIP] Non-login op received: {parsed.get('op')}")
+                except Exception as e:
+                    logger.error(f"[WS LOGIN PARSE ERROR] {e}")
+                    break
 
-            # Step 3: Start heartbeat
-            asyncio.create_task(send_heartbeat(websocket))
+            if not login_success:
+                return
 
             # Validate login success before proceeding
             try:
