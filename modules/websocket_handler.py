@@ -2,7 +2,6 @@ import websocket
 import ssl
 import json
 import time
-import hmac
 import hashlib
 import logging
 import requests
@@ -20,17 +19,15 @@ def start_websocket_listener():
     def on_open(ws):
         logger.info("WebSocket opened. Sending login request.")
 
-        timestamp = str(int(time.time() * 1000))
-        random_bytes = secrets.token_bytes(32)
-        nonce = base64.b64encode(random_bytes).decode('utf-8')
-        digest_input = nonce + timestamp + API_KEY
-        digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
-        sign_input = digest + API_SECRET
-        signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
+        timestamp = str(int(time.time()))  # seconds
+        nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
+
+        digest = hashlib.sha256((nonce + timestamp + API_KEY).encode()).hexdigest()
+        signature = hashlib.sha256((digest + API_SECRET).encode()).hexdigest()
 
         auth_payload = {
-            "event": "login",
-            "params": {
+            "op": "login",
+            "args": {
                 "apiKey": API_KEY,
                 "timestamp": timestamp,
                 "nonce": nonce,
@@ -42,10 +39,8 @@ def start_websocket_listener():
         logger.info(f"Login payload sent: {auth_payload}")
 
         subscribe_payload = {
-            "event": "subscribe",
-            "params": {
-                "channels": ["futures.position", "futures.tp_sl", "futures.order"]
-            }
+            "op": "subscribe",
+            "args": ["futures.position", "futures.tp_sl", "futures.order"]
         }
 
         ws.send(json.dumps(subscribe_payload))
@@ -109,10 +104,8 @@ def start_websocket_listener():
             logger.error(f"WebSocket connection error, retrying: {e}")
             time.sleep(5)
 
-
 def handle_tp_sl(data):
     """Expose TP handler for use in test/simulation endpoints."""
-    state = {}
     tp_event = data.get("data", {})
     tp_price_hit = float(tp_event.get("triggerPrice", 0))
     symbol = tp_event.get("symbol", "BTCUSDT")
@@ -120,7 +113,6 @@ def handle_tp_sl(data):
 
     logger.info(f"TP trigger detected for {symbol} at price: {tp_price_hit}")
 
-    # Compute P&L based on trigger direction (TP or SL)
     try:
         step = state.get("step", 0)
         entry_price = state.get("entry_price")
@@ -153,7 +145,6 @@ def handle_tp_sl(data):
 
     logger.info(f"Step {step} hit. New SL: {new_sl}, Next TP: {new_tp}")
 
-    # Cancel all limit orders if TP1 is hit
     if step == 0:
         try:
             random_bytes = secrets.token_bytes(32)
@@ -181,7 +172,7 @@ def handle_tp_sl(data):
             cancel_resp.raise_for_status()
             logger.info(f"[LIMIT ORDERS CANCELLED] {cancel_resp.json()}")
         except Exception as cancel_err:
-            logger.error(f"[CANCEL LIMIT ORDERS FAILED] {str(cancel_err)}")
+            logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
 
     if new_tp:
         modify_tp_sl_order(symbol, new_tp, new_sl)
