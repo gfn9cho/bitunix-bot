@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from modules.webhook_handler import webhook_handler
 from modules.logger_config import logger
 from modules.websocket_handler import start_websocket_listener, handle_tp_sl
+from modules.config import API_KEY, API_SECRET
 import threading
 import asyncio
 import os
@@ -10,6 +11,7 @@ import time
 import hmac
 import base64
 import secrets
+#from modules.new_websocket_handler import monitor_balance
 
 app = Flask(__name__)
 
@@ -24,7 +26,7 @@ def start_ws_listener():
 
 
 # Start listener before Flask app
-threading.Thread(target=start_ws_listener, daemon=True).start()
+#threading.Thread(target=start_ws_listener, daemon=True).start()
 
 
 # --- Debug Signature Endpoint ---
@@ -91,6 +93,7 @@ def simulate_tp():
 # --- Webhook Route ---
 @app.route('/webhook/<symbol>', methods=['POST'])
 def webhook(symbol):
+    logger.info(f"symbol: {symbol}")
     return webhook_handler(symbol)
 
 

@@ -75,7 +75,7 @@ def webhook_handler(symbol):
 
         # Market order
         market_qty = override_qty if override_qty else 10
-        logger.info(f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}, sl={sl}")
+        logger.info(f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}, tp={tp1}, sl={sl}")
 
         retries = 3
         for attempt in range(retries):
@@ -85,6 +85,7 @@ def webhook_handler(symbol):
                 price=entry,
                 qty=market_qty,
                 order_type="MARKET",
+                tp=tp1,
                 sl=sl,
                 private=True
             )
@@ -104,14 +105,14 @@ def webhook_handler(symbol):
 
         # Limit orders
         logger.info(f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, price={zone_start}, qty={override_qty or 10}, sl={sl}")
-        place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT", sl=sl)
+        place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)
 
         logger.info(f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, price={zone_middle}, qty={override_qty or 10}, sl={sl}")
-        place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10, order_type="LIMIT", sl=sl)
+        place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10, order_type="LIMIT",tp=tp1, sl=sl)
 
         bottom_qty = (override_qty * 2 if override_qty else 20)
         logger.info(f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, price={zone_bottom}, qty={bottom_qty}, sl={sl}")
-        place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT", sl=sl)
+        place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT", tp=tp1, sl=sl)
 
         return jsonify({
             "status": "parsed",
