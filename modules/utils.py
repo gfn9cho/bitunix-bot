@@ -8,10 +8,10 @@ import requests
 import base64
 import secrets
 from datetime import datetime
-from modules.config import API_KEY, API_SECRET, BASE_URL
+from modules.config import API_KEY, API_SECRET, BASE_URL, LOSS_LOG_FILE
 from modules.logger_config import logger
 
-LOSS_LOG_FILE = "daily_loss_log.json"
+#LOSS_LOG_FILE = "daily_loss_log.json"
 
 def get_today():
     return datetime.utcnow().strftime("%Y-%m-%d")
@@ -148,13 +148,16 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=No
         "orderType": order_type.upper(),
         "tradeSide": "OPEN",
         "effect": "GTC",
-        "clientId": timestamp
+        "clientId": timestamp,
     }
 
     if reduce_only:
         order_data["reduceOnly"] = True
         order_data["tradeSide"] = "CLOSE"
-
+    if tp:
+        order_data["tpPrice"] = str(tp)
+        order_data["tpOrderType"] = "MARKET"
+        order_data["tpStopType"] = "MARK_PRICE"
     if sl:
         order_data.update({
             "slPrice": str(sl),

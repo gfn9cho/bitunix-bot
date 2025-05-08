@@ -20,7 +20,7 @@ __all__ = ["start_websocket_listener", "handle_tp_sl"]
 
 
 def generate_signature(api_key, secret_key, nonce):
-    timestamp = str(int(time.time()))  # MUST be int, not str
+    timestamp = int(time.time())
     pre_sign = f"{nonce}{timestamp}{api_key}"
     sign = hashlib.sha256(pre_sign.encode()).hexdigest()
     final_sign = hashlib.sha256((sign + secret_key).encode()).hexdigest()
@@ -33,13 +33,8 @@ def generate_nonce(length=32):
 
 async def send_heartbeat(websocket):
     while True:
-        try:
-            await websocket.send(json.dumps({"op": "ping", "ping": int(time.time())}))
-            logger.debug("[HEARTBEAT] Ping sent")
-            await asyncio.sleep(20)
-        except Exception as e:
-            logger.warning(f"[HEARTBEAT] Failed to send ping: {e}")
-            break
+        await websocket.send(json.dumps({"op": "ping", "ping": int(time.time())}))
+        await asyncio.sleep(30)
 
 async def start_websocket_listener():
     ws_url = "wss://fapi.bitunix.com/private/"

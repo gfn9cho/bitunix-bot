@@ -26,7 +26,7 @@ def start_ws_listener():
 
 
 # Start listener before Flask app
-#threading.Thread(target=start_ws_listener, daemon=True).start()
+threading.Thread(target=start_ws_listener, daemon=True).start()
 
 
 # --- Debug Signature Endpoint ---
