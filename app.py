@@ -1,8 +1,7 @@
 from flask import Flask, request, jsonify
 from modules.webhook_handler import webhook_handler
 from modules.logger_config import logger
-from modules.websocket_handler import start_websocket_listener, handle_tp_sl
-from modules.config import API_KEY, API_SECRET
+from modules.websocket_handler import start_websocket_listener
 import threading
 import asyncio
 import os
@@ -11,7 +10,6 @@ import time
 import hmac
 import base64
 import secrets
-#from modules.new_websocket_handler import monitor_balance
 
 app = Flask(__name__)
 
@@ -83,7 +81,7 @@ def simulate_tp():
             }
         }
 
-        handle_tp_sl(fake_tp_data)
+        #handle_tp_sl(fake_tp_data)
         return jsonify({"status": "TP event processed"}), 200
 
     except Exception as e:
