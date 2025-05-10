@@ -205,7 +205,7 @@ async def handle_ws_message(message):
                                       tp_qty=None, qty=new_qty)
 
                 state["step"] = next_step
-                state["total_qty"] = round(new_qty - tp_qty, 3)
+                # state["total_qty"] = round(new_qty - tp_qty, 3)
                 update_position_state(symbol, direction, state)
 
             if position_event == "CLOSE" and new_qty == 0:
