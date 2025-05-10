@@ -11,5 +11,5 @@ MAX_DAILY_LOSS = 100  # Max loss in USD per day
 
 #LOSS_LOG_FILE = "/Users/prabha/IdeaProjects/bitunix-bot/daily_loss_log.json"
 #FAILED_ORDER_LOG_FILE = "/Users/prabha/IdeaProjects/bitunix-bot/failed_orders.json"
-LOSS_LOG_FILE = "/var/data/daily_loss_log.json"
-FAILED_ORDER_LOG_FILE = "/Users/prabha/IdeaProjects/bitunix-bot/failed_orders.json"
+LOSS_LOG_FILE = "/var/data/bitunix-bot/daily_loss_log.json"
+FAILED_ORDER_LOG_FILE = "/var/data/bitunix-bot//failed_orders.json"
