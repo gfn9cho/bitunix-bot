@@ -63,10 +63,10 @@ def get_or_create_symbol_direction_state(symbol, direction):
 def update_position_state(symbol, direction, updated_fields: dict):
     if not updated_fields:
         return
-
-    columns = list(updated_fields.keys())
+    # Remove symbol and direction if mistakenly included
+    columns = [col for col in updated_fields.keys() if col not in ("symbol", "direction")]
     values = [updated_fields[col] for col in columns]
-    placeholders = ", ".join(["%s"] * len(columns))
+    placeholders = ", ".join(["%s"] * len(values))
     set_clause = ", ".join([f"{col} = EXCLUDED.{col}" for col in columns])
 
     logger.info(f"[DB] Updating state for {symbol} {direction} with fields: {updated_fields}")
@@ -79,6 +79,7 @@ def update_position_state(symbol, direction, updated_fields: dict):
                 ON CONFLICT (symbol, direction) DO UPDATE SET {set_clause}
             """, [symbol, direction] + values)
             conn.commit()
+
 
 
 def delete_position_state(symbol, direction):
