@@ -1,15 +1,10 @@
 from flask import request, jsonify
 from datetime import datetime
-import logging
-from modules.utils import parse_signal, get_today_net_loss, place_order, update_profit, update_loss, place_tp_sl_order
+from modules.utils import parse_signal, get_today_net_loss, place_order
 from modules.config import MAX_DAILY_LOSS
-from modules.logger_config import logger, error_logger, trade_logger, reversal_logger
-from modules.state import position_state, save_position_state
-import os
-import hmac
-import hashlib
-import json
-import random
+from modules.logger_config import logger, error_logger
+# from modules.state import position_state, save_position_state
+from postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
 import time
 
 
@@ -55,7 +50,7 @@ def webhook_handler(symbol):
 
         parsed = parse_signal(message)
 
-        from modules.state import get_or_create_symbol_direction_state
+        #from modules.state import get_or_create_symbol_direction_state
 
         direction = parsed["direction"].upper()
         state = get_or_create_symbol_direction_state(symbol, direction)
@@ -64,7 +59,7 @@ def webhook_handler(symbol):
         state["step"] = 0
         state["qty_distribution"] = [0.7, 0.1, 0.1, 0.1]
         state["stop_loss"] = parsed["stop_loss"]
-        save_position_state()
+        update_position_state(symbol, direction, state)
         state = get_or_create_symbol_direction_state(symbol, direction)
         logger.info(f"[State]:{state}")
 

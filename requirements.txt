@@ -3,3 +3,4 @@ requests
 websocket-client
 gunicorn
 websockets
+psycopg2-binary
