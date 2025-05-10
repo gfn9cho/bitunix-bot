@@ -134,10 +134,6 @@ async def handle_ws_message(message):
                 ctime = datetime.utcnow()
             log_date = ctime.strftime("%Y-%m-%d")
             if position_event == "OPEN" or (position_event == "UPDATE" and new_qty > old_qty):
-                if direction not in state.get(symbol, {}):
-                    logger.warning(
-                        f"[DIRECTION MISMATCH] {symbol} {direction} not initialized. Skipping TP/SL placement.")
-                    return
                 current_position_id = state.get("position_id")
                 position_id = current_position_id if current_position_id is not None else pos_event.get("positionId")
                 logger.info(f"positionId: {position_id}")
