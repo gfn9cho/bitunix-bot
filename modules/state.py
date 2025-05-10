@@ -6,6 +6,8 @@ from modules.logger_config import logger
 # STATE_FILE = "/Users/prabha/IdeaProjects/bitunix-bot/position_state.json"
 # STATE_FILE = "/var/data/bitunix-bot/position_state.json"
 STATE_FILE = os.getenv("POSITION_STATE_FILE", "/Users/prabha/IdeaProjects/bitunix-bot/position_state.json")
+logger.info(f"[DISK CHECK] STATE_FILE = {STATE_FILE}")
+logger.info(f"[DISK EXISTS] {os.path.exists(os.path.dirname(STATE_FILE))}")
 
 
 try:
