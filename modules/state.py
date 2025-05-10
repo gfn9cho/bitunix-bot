@@ -4,7 +4,9 @@ import os
 from modules.logger_config import logger
 
 # STATE_FILE = "/Users/prabha/IdeaProjects/bitunix-bot/position_state.json"
-STATE_FILE = "/var/data/bitunix-bot/position_state.json"
+# STATE_FILE = "/var/data/bitunix-bot/position_state.json"
+STATE_FILE = os.getenv("POSITION_STATE_FILE", "/Users/prabha/IdeaProjects/bitunix-bot/position_state.json")
+
 
 try:
     with open(STATE_FILE, "r") as f:
