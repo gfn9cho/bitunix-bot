@@ -89,11 +89,11 @@ async def handle_ws_message(message):
         data = json.loads(message)
         topic = data.get("ch")
 
-        if topic == "tpsl":
-            tp_event = data.get("data", {})
-            symbol = tp_event.get("symbol", "BTCUSDT")
-            direction = tp_event.get("side")
-            tp_price_hit = float(tp_event.get("tpPrice", 0))
+        # if topic == "tpsl":
+        #     tp_event = data.get("data", {})
+        #     symbol = tp_event.get("symbol", "BTCUSDT")
+        #     direction = tp_event.get("side")
+        #     tp_price_hit = float(tp_event.get("tpPrice", 0))
 
 
             # if "slOrderPrice" in tp_event:

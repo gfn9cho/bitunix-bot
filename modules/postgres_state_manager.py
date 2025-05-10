@@ -2,8 +2,6 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from modules.config import DB_CONFIG, DEFAULT_STATE
 
-
-
 def get_db_conn():
     return psycopg2.connect(**DB_CONFIG)
 
@@ -39,7 +37,6 @@ def get_or_create_symbol_direction_state(symbol, direction):
             if row:
                 return dict(row)
             else:
-                # Insert default
                 cur.execute("""
                     INSERT INTO position_state (symbol, direction, position_id, entry_price, total_qty, step, tps, stop_loss, qty_distribution)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -64,15 +61,16 @@ def update_position_state(symbol, direction, updated_fields: dict):
 
     columns = list(updated_fields.keys())
     values = [updated_fields[col] for col in columns]
-
-    set_clause = ", ".join([f"{col} = %s" for col in columns])
+    placeholders = ", ".join(["%s"] * len(columns))
+    set_clause = ", ".join([f"{col} = EXCLUDED.{col}" for col in columns])
 
     with get_db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(f"""
-                UPDATE position_state SET {set_clause}
-                WHERE symbol = %s AND direction = %s
-            """, values + [symbol, direction])
+                INSERT INTO position_state (symbol, direction, {', '.join(columns)})
+                VALUES (%s, %s, {placeholders})
+                ON CONFLICT (symbol, direction) DO UPDATE SET {set_clause}
+            """, [symbol, direction] + values)
             conn.commit()
 
 
