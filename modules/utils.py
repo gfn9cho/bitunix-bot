@@ -8,7 +8,7 @@ import requests
 import base64
 import secrets
 from datetime import datetime
-from modules.config import API_KEY, API_SECRET, BASE_URL, LOSS_LOG_FILE
+from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
 
 #LOSS_LOG_FILE = "daily_loss_log.json"
@@ -16,46 +16,46 @@ from modules.logger_config import logger
 def get_today():
     return datetime.utcnow().strftime("%Y-%m-%d")
 
-def read_loss_log():
-    if not os.path.exists(LOSS_LOG_FILE):
-        return {}
-    try:
-        with open(LOSS_LOG_FILE, 'r') as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        return {}
+# def read_loss_log():
+#     if not os.path.exists(LOSS_LOG_FILE):
+#         return {}
+#     try:
+#         with open(LOSS_LOG_FILE, 'r') as f:
+#             return json.load(f)
+#     except json.JSONDecodeError:
+#         return {}
 
-def write_loss_log(log):
-    with open(LOSS_LOG_FILE, 'w') as f:
-        json.dump(log, f)
+# def write_loss_log(log):
+#     with open(LOSS_LOG_FILE, 'w') as f:
+#         json.dump(log, f)
 
-def update_loss(amount):
-    log = read_loss_log()
-    today = get_today()
-    if today not in log:
-        log[today] = {"profit": 0, "loss": 0}
-    log[today]["loss"] += amount
-    write_loss_log(log)
+# def update_loss(amount):
+#     log = read_loss_log()
+#     today = get_today()
+#     if today not in log:
+#         log[today] = {"profit": 0, "loss": 0}
+#     log[today]["loss"] += amount
+#     write_loss_log(log)
 
-def update_profit(amount):
-    log = read_loss_log()
-    today = get_today()
-    if today not in log:
-        log[today] = {"profit": 0, "loss": 0}
-    log[today]["profit"] += amount
-    write_loss_log(log)
+# def update_profit(amount):
+#     log = read_loss_log()
+#     today = get_today()
+#     if today not in log:
+#         log[today] = {"profit": 0, "loss": 0}
+#     log[today]["profit"] += amount
+#     write_loss_log(log)
 
-def get_today_loss():
-    log = read_loss_log()
-    today = get_today()
-    return log.get(today, {}).get("loss", 0)
-
-def get_today_net_loss():
-    log = read_loss_log()
-    today = get_today()
-    profit = log.get(today, {}).get("profit", 0)
-    loss = log.get(today, {}).get("loss", 0)
-    return max(loss - profit, 0)
+# def get_today_loss():
+#     log = read_loss_log()
+#     today = get_today()
+#     return log.get(today, {}).get("loss", 0)
+#
+# def get_today_net_loss():
+#     log = read_loss_log()
+#     today = get_today()
+#     profit = log.get(today, {}).get("profit", 0)
+#     loss = log.get(today, {}).get("loss", 0)
+#     return max(loss - profit, 0)
 
 def generate_get_sign_api(nonce, timestamp, method, data):
     query_params = ""
