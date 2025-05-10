@@ -131,7 +131,7 @@ async def handle_ws_message(message):
             position_event = pos_event.get("event")
             new_qty = float(pos_event.get("qty", 0))
             state = get_or_create_symbol_direction_state(symbol, direction)
-
+            logger.info(f"State inside position: {state}")
             # Weighted average entry price update
             old_qty = state.get("total_qty", 0)
             logger.info("In Here 1")
@@ -155,8 +155,11 @@ async def handle_ws_message(message):
                 state["entry_price"] = round(avg_entry, 6)
                 state["total_qty"] = round(new_qty, 3)
                 logger.info("In here 2")
+                x = state.get("tps")
+                logger.info(f"In Here 3:{x}")
                 if state.get("step", 0) == 0 and state.get("tps"):
                     tp1 = state["tps"][0]
+                    logger.info(f"tp1:{tp1}")
                     sl_price = state["stop_loss"]
                     tp_qty = round(new_qty * 0.7, 3)
                     full_qty = round(new_qty, 3)
@@ -170,7 +173,7 @@ async def handle_ws_message(message):
                                           tp_qty=tp_qty, qty=full_qty)
                             logger.info(
                             f"[TP/SL SET] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
-
+                logger.info(f"In Here 4: {state}")
                 save_position_state()
             if (position_event == "UPDATE" and new_qty < old_qty):
                 step = state.get("step", 0)
