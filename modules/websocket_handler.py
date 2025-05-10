@@ -199,13 +199,13 @@ async def handle_ws_message(message):
 
                 if new_tp:
                     place_tp_sl_order(symbol=symbol, tp_price=new_tp, sl_price=new_sl, position_id=position_id,
-                                      tp_qty=tp_qty, qty=total_qty)
+                                      tp_qty=tp_qty, qty=new_qty)
                 else:
                     place_tp_sl_order(symbol=symbol, tp_price=None, sl_price=new_sl, position_id=position_id,
-                                      tp_qty=None, qty=total_qty)
+                                      tp_qty=None, qty=new_qty)
 
                 state["step"] = next_step
-                state["total_qty"] = round(total_qty - tp_qty, 3)
+                state["total_qty"] = round(new_qty - tp_qty, 3)
                 update_position_state(symbol, direction, state)
 
             if position_event == "CLOSE" and new_qty == 0:

@@ -284,7 +284,7 @@ def cancel_all_new_orders(symbol):
         )
         response.raise_for_status()
         orders = response.json().get("data", {}).get("list", [])
-        new_orders = [o["orderId"] for o in orders if o.get("orderStatus") == "NEW"]
+        new_orders = [o["orderId"] for o in orders if o.get("status") == "NEW"]
 
         if not new_orders:
             logger.info(f"No NEW orders found for {symbol}")
