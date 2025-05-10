@@ -236,6 +236,7 @@ def parse_signal(message):
     entry_price = extract_value("Entry Price")
     stop_loss = extract_value("Stop Loss")
     tps = [float(tp) for tp in re.findall(r"TP\d+:\s*([\d.]+)", message)]
+    logger.info(f"[tps]: {tps}")
     acc_zone_match = re.search(r"Accumulation Zone: ([\d.]+) - ([\d.]+)", message)
     acc_top, acc_bottom = float(acc_zone_match.group(1)), float(acc_zone_match.group(2))
 

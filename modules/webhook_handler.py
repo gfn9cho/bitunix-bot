@@ -65,8 +65,11 @@ def webhook_handler(symbol):
         state["qty_distribution"] = [0.7, 0.1, 0.1, 0.1]
         state["stop_loss"] = parsed["stop_loss"]
         save_position_state()
+        state = get_or_create_symbol_direction_state(symbol, direction)
+        logger.info(f"[State]:{state}")
 
-        # Execute trades
+
+    # Execute trades
         entry = parsed["entry_price"]
         zone_start, zone_bottom = parsed["accumulation_zone"]
         zone_middle = (zone_start + zone_bottom) / 2
