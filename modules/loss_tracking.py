@@ -1,6 +1,6 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from config import DB_CONFIG, MAX_DAILY_LOSS
+from modules.config import DB_CONFIG, MAX_DAILY_LOSS
 import os
 
 

@@ -8,9 +8,9 @@ import string
 from modules.config import API_KEY, API_SECRET
 from modules.logger_config import logger
 # from modules.state import position_state, save_position_state, get_or_create_symbol_direction_state
-from postgres_state_manager import get_or_create_symbol_direction_state, update_position_state, delete_position_state
+from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state, delete_position_state
 from modules.utils import place_tp_sl_order, cancel_all_new_orders
-from loss_tracking import log_profit_loss
+from modules.loss_tracking import log_profit_loss
 from datetime import datetime
 
 # TP distribution: 70% for TP1, 10% each for TP2–TP4

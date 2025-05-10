@@ -2,8 +2,8 @@ from flask import request, jsonify
 from datetime import datetime
 from modules.utils import parse_signal, place_order
 from modules.logger_config import logger, error_logger
-from postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
-from loss_tracking import  is_daily_loss_limit_exceeded
+from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
+from modules.loss_tracking import  is_daily_loss_limit_exceeded
 import time
 
 
