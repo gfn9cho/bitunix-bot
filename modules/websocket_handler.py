@@ -7,14 +7,16 @@ import random
 import string
 from datetime import datetime
 import logging
-from modules.config import API_KEY, API_SECRET, BASE_URL
+from modules.config import API_KEY, API_SECRET, BASE_URL, FAILED_ORDER_LOG_FILE
 from modules.logger_config import logger
-from modules.state import position_state, save_position_state
-from modules.utils import update_profit, update_loss, place_tp_sl_order, modify_tp_sl_order
+from modules.state import position_state, save_position_state, get_or_create_symbol_direction_state
+from modules.utils import update_profit, update_loss, place_tp_sl_order, modify_tp_sl_order, cancel_all_new_orders
 import secrets
 import base64
 import requests
 
+# TP distribution: 70% for TP1, 10% each for TP2–TP4
+TP_DISTRIBUTION = [0.7, 0.1, 0.1, 0.1]
 
 __all__ = ["start_websocket_listener", "handle_tp_sl"]
 
@@ -34,7 +36,8 @@ def generate_nonce(length=32):
 async def send_heartbeat(websocket):
     while True:
         await websocket.send(json.dumps({"op": "ping", "ping": int(time.time())}))
-        await asyncio.sleep(30)
+        await asyncio.sleep(20)
+
 
 async def start_websocket_listener():
     ws_url = "wss://fapi.bitunix.com/private/"
@@ -45,11 +48,9 @@ async def start_websocket_listener():
         async with websockets.connect(ws_url, ping_interval=None) as websocket:
             logger.info("WS launched")
 
-            # Step 1: Wait for connect confirmation
             connect_msg = await websocket.recv()
             logger.info(f"[WS CONNECT] {connect_msg}")
 
-            # Step 3: Send login
             login_request = {
                 "op": "login",
                 "args": [
@@ -62,47 +63,17 @@ async def start_websocket_listener():
                 ],
             }
             await websocket.send(json.dumps(login_request))
-            logger.info(f"[WS LOGIN SENT] {login_request}")
-            response = await websocket.recv()
-            print("Login Response:", response)
-            # Step 2: Start heartbeat
+            await websocket.recv()
             asyncio.create_task(send_heartbeat(websocket))
 
-            # # Wait for login response, skip over pings
-            # login_success = False
-            # start = time.time()
-            # while time.time() - start < 10:  # timeout after 5 seconds
-            #     response = await websocket.recv()
-            #     try:
-            #         parsed = json.loads(response)
-            #         if parsed.get("op") == "login":
-            #             logger.info(f"[WS LOGIN RESPONSE] {response}")
-            #             if parsed.get("data", {}).get("result") is True:
-            #                 logger.info("[WS LOGIN SUCCESS]")
-            #                 login_success = True
-            #                 break
-            #             else:
-            #                 logger.error(f"[WS LOGIN FAILED] {parsed}")
-            #                 return
-            #         elif parsed.get("op") == "ping":
-            #             logger.debug(f"[WS PING SKIPPED] {response}")
-            #         else:
-            #             logger.debug(f"[WS OTHER SKIPPED] {response}")
-            #     except Exception as e:
-            #         logger.warning(f"[WS LOGIN PARSE FAIL] {e}")
-            #
-            # if not login_success:
-            #     logger.error("[WS LOGIN FAILED] No valid login response")
-            #     return
-
             subscribe_request = {
-                        "op": "subscribe",
-                        "args": [
-                            {"ch": "order"},
-                            {"ch": "position"},
-                            {"ch": "tp_sl"}
-                        ]
-                    }
+                "op": "subscribe",
+                "args": [
+                    {"ch": "order"},
+                    {"ch": "position"},
+                    {"ch": "tp_sl"}
+                ]
+            }
             await websocket.send(json.dumps(subscribe_request))
             try:
                 while True:
@@ -118,51 +89,158 @@ async def start_websocket_listener():
 async def handle_ws_message(message):
     try:
         data = json.loads(message)
-        topic = data.get("topic")
+        topic = data.get("ch")
 
-        if topic == "futures.tp_sl":
-            handle_tp_sl(data)
-        elif topic == "futures.order":
-            order_event = data.get("data", {})
-            order_status = order_event.get("status")
-            order_id = order_event.get("orderId")
-            symbol = order_event.get("symbol", "BTCUSDT")
+        if topic == "tpsl":
+            tp_event = data.get("data", {})
+            symbol = tp_event.get("symbol", "BTCUSDT")
+            direction = tp_event.get("side")
+            tp_price_hit = float(tp_event.get("tpPrice", 0))
 
-            if order_status == "FILLED":
-                logger.info(f"Order filled for {symbol}: {order_event}")
-                state = position_state.setdefault(symbol, {"filled_orders": set()})
 
-                if order_id in state.get("filled_orders", set()):
-                    logger.info(f"Order {order_id} already handled. Skipping TP/SL setup.")
+            if "slOrderPrice" in tp_event:
+                sl_price_hit = float(tp_event.get("slOrderPrice", 0))
+                loss_amount = 0
+                state = get_or_create_symbol_direction_state(symbol, direction)
+                entry_price = state.get("entry_price", 0)
+                total_qty = state.get("total_qty", 0)
+
+                if direction == "SELL":
+                    loss_amount = (entry_price - sl_price_hit) * total_qty
+                else:
+                    loss_amount = (sl_price_hit - entry_price) * total_qty
+
+                update_loss(round(abs(loss_amount), 4))
+                logger.info(
+                    f"[SL HIT] Loss of {abs(loss_amount):.4f} logged for {symbol} {direction} at SL price {sl_price_hit}")
+
+                if symbol in position_state and direction in position_state[symbol]:
+                    del position_state[symbol][direction]
+                    if not position_state[symbol]:
+                        del position_state[symbol]
+                save_position_state()
+                return
+            # if(tp_price_hit > 0):
+            #     handle_tp_sl(data)
+
+        elif topic == "position":
+            pos_event = data.get("data", {})
+            symbol = pos_event.get("symbol", "BTCUSDT")
+            side = pos_event.get("side", "LONG").upper()
+            direction = "BUY" if side == "LONG" else "SELL"
+            position_event = pos_event.get("event")
+            new_qty = float(pos_event.get("qty", 0))
+            state = get_or_create_symbol_direction_state(symbol, direction)
+
+            # Weighted average entry price update
+            old_qty = state.get("total_qty", 0)
+            logger.info("In Here 1")
+            if position_event == "OPEN" or (position_event == "UPDATE" and new_qty > old_qty):
+                if direction not in position_state.get(symbol, {}):
+                    logger.warning(
+                        f"[DIRECTION MISMATCH] {symbol} {direction} not initialized. Skipping TP/SL placement.")
+                    return
+                current_position_id = state.get("position_id")
+                position_id = current_position_id if current_position_id is not None else pos_event.get("positionId")
+                logger.info(f"positionId: {position_id}")
+                position_margin = float(pos_event.get("margin"))
+                logger.info(f"position_margion: {position_margin}")
+                # position_rpnl = float(pos_event.get("realizedPNL"))
+                position_fee = float(pos_event.get("fee"))
+                logger.info(f"position_fee: {position_fee}")
+                state["position_id"] = position_id
+                avg_entry = (position_margin + position_fee) / new_qty
+                logger.info(f"avg_entry: {avg_entry}")
+
+                state["entry_price"] = round(avg_entry, 6)
+                state["total_qty"] = round(new_qty, 3)
+                logger.info("In here 2")
+                if state.get("step", 0) == 0 and state.get("tps"):
+                    tp1 = state["tps"][0]
+                    sl_price = state["stop_loss"]
+                    tp_qty = round(new_qty * 0.7, 3)
+                    full_qty = round(new_qty, 3)
+                    if tp_qty > 0 and position_id:
+                        if position_event != "OPEN" and new_qty > old_qty:
+                            # modify_tp_sl_order(symbol, tp1, sl_price, position_id, tp_qty, full_qty)
+                            place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
+                                              tp_qty=tp_qty, qty=full_qty)
+                        else:
+                            place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
+                                          tp_qty=tp_qty, qty=full_qty)
+                            logger.info(
+                            f"[TP/SL SET] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
+
+                save_position_state()
+            if (position_event == "UPDATE" and new_qty < old_qty):
+                step = state.get("step", 0)
+                entry_price = state.get("entry_price")
+                current_position_id = state.get("position_id")
+                position_id = current_position_id if current_position_id is not None else pos_event.get("positionId")
+                total_qty = state.get("total_qty", 0)
+                profit_amount = float(pos_event.get("realizedPNL"))
+                update_profit(round(profit_amount, 4))
+                logger.info(f"[P&L LOGGED] {'Profit' if profit_amount > 0 else 'Loss'} of {abs(profit_amount):.4f} logged for {symbol} {direction} at TP{step + 1}")
+                tps = state.get("tps", [])
+                if not tps or step >= len(tps):
+                    logger.warning(f"No TP state for {symbol} {direction}. Skipping.")
                     return
 
-                state["filled_orders"].add(order_id)
-                if state.get("step", 0) == 0:
-                    tp1 = state.get("tps", [])[0]
-                    market_qty = state.get("qty_distribution", [0.7])[0]
-                    position_id = order_event.get("positionId")
-                    if position_id:
-                        place_tp_sl_order(symbol=symbol, tp_price=tp1, position_id=position_id, qty=market_qty)
-                        logger.info(f"Placed TP1 for {symbol} at {tp1} with qty {market_qty} and positionId {position_id}")
+                new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
+                next_step = step + 1
+                new_tp = tps[next_step] if next_step < len(tps) else None
+
+                logger.info(f"Step {step} hit for {symbol} {direction}. New SL: {new_sl}, Next TP: {new_tp}")
+
+                if step == 0:
+                    try:
+                        cancel_all_new_orders(symbol)
+                    except Exception as cancel_err:
+                        logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
+
+                # order_id = state.get("primary_order_id")
+                if new_tp:
+                    tp_qty = round(total_qty * 0.1, 3)
+                    place_tp_sl_order(symbol=symbol, tp_price=new_tp, sl_price=new_sl, position_id=position_id,
+                                      tp_qty=tp_qty, qty=total_qty)
+                    # modify_tp_sl_order(symbol, new_tp, new_sl, position_id, tp_qty, qty=total_qty)
+                else:
+                    place_tp_sl_order(symbol=symbol, tp_price=None, sl_price=new_sl, position_id=position_id,
+                                      tp_qty=None, qty=total_qty)
+                    # modify_tp_sl_order(symbol, None, new_sl, position_id, None, qty=round(total_qty * 0.1, 3))
+
+                state["step"] = next_step
+                state["total_qty"] = round(total_qty - tp_qty, 3)
                 save_position_state()
+            if position_event == "CLOSE" and new_qty == 0 and symbol in position_state and direction in position_state[symbol]:
+                del position_state[symbol][direction]
+                if not position_state[symbol]:
+                    del position_state[symbol]
+                profit_amount = float(pos_event.get("realizedPNL"))
+                update_profit(round(profit_amount, 4))
+            save_position_state()
     except Exception as e:
         logger.error(f"WebSocket message handler error: {str(e)}")
 
+
 def handle_tp_sl(data):
     tp_event = data.get("data", {})
-    tp_price_hit = float(tp_event.get("triggerPrice", 0))
+    tp_price_hit = float(tp_event.get("tpPrice", 0))
     symbol = tp_event.get("symbol", "BTCUSDT")
-    state = position_state.get(symbol, {})
+    direction = tp_event.get("side")
 
-    logger.info(f"TP trigger detected for {symbol} at price: {tp_price_hit}")
+    state = get_or_create_symbol_direction_state(symbol, direction)
+    logger.info(f"TP trigger detected for {symbol} {direction} at price: {tp_price_hit}")
 
     try:
         step = state.get("step", 0)
         entry_price = state.get("entry_price")
-        qty_distribution = state.get("qty_distribution", [1])
-        qty = qty_distribution[step] if step < len(qty_distribution) else 0
+        total_qty = state.get("total_qty", 0)
 
-        if state.get("direction") == "SELL":
+        qty_distribution = TP_DISTRIBUTION
+        qty = round(total_qty * qty_distribution[step], 3) if step < len(qty_distribution) else 0
+
+        if direction == "SELL":
             profit_amount = (entry_price - tp_price_hit) * qty
         else:
             profit_amount = (tp_price_hit - entry_price) * qty
@@ -171,22 +249,22 @@ def handle_tp_sl(data):
             update_profit(round(profit_amount, 4))
         else:
             update_loss(round(abs(profit_amount), 4))
-        logger.info(f"[P&L LOGGED] {'Profit' if profit_amount > 0 else 'Loss'} of {abs(profit_amount):.4f} logged for {symbol} at TP{step + 1}")
+
+        logger.info(
+            f"[P&L LOGGED] {'Profit' if profit_amount > 0 else 'Loss'} of {abs(profit_amount):.4f} logged for {symbol} {direction} at TP{step + 1}")
     except Exception as e:
-        logger.warning(f"[P&L LOGGING FAILED] Could not log profit for {symbol}: {str(e)}")
+        logger.warning(f"[P&L LOGGING FAILED] Could not log profit for {symbol} {direction}: {str(e)}")
 
     tps = state.get("tps", [])
-    step = state.get("step", 0)
-
     if not tps or step >= len(tps):
-        logger.warning(f"No TP state for {symbol}. Skipping.")
+        logger.warning(f"No TP state for {symbol} {direction}. Skipping.")
         return
 
     new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
     next_step = step + 1
     new_tp = tps[next_step] if next_step < len(tps) else None
 
-    logger.info(f"Step {step} hit. New SL: {new_sl}, Next TP: {new_tp}")
+    logger.info(f"Step {step} hit for {symbol} {direction}. New SL: {new_sl}, Next TP: {new_tp}")
 
     if step == 0:
         try:
@@ -217,8 +295,13 @@ def handle_tp_sl(data):
         except Exception as cancel_err:
             logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
 
+    order_id = state.get("primary_order_id")
     if new_tp:
-        modify_tp_sl_order(symbol, new_tp, new_sl)
+        next_qty = round(total_qty * 0.1, 3)
+        modify_tp_sl_order(symbol, new_tp, new_sl, order_id, qty=next_qty)
+    else:
+        modify_tp_sl_order(symbol, None, new_sl, order_id, qty=round(total_qty * 0.1, 3))
 
     state["step"] = next_step
+    state["total_qty"] = round(total_qty - qty, 3)
     save_position_state()

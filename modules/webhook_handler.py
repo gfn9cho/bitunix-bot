@@ -55,22 +55,23 @@ def webhook_handler(symbol):
 
         parsed = parse_signal(message)
 
-        position_state[symbol] = {
-            "step": 0,
-            "tps": parsed["take_profits"],
-            "direction": parsed["direction"],
-            "filled_orders": set(),
-            "entry_price": parsed["entry_price"],
-            "qty_distribution": [0.7, 0.1, 0.1, 0.1]
-        }
+        from modules.state import get_or_create_symbol_direction_state
+
+        direction = parsed["direction"].upper()
+        state = get_or_create_symbol_direction_state(symbol, direction)
+        state["tps"] = parsed["take_profits"]
+        state["entry_price"] = parsed["entry_price"]
+        state["step"] = 0
+        state["qty_distribution"] = [0.7, 0.1, 0.1, 0.1]
+        state["stop_loss"] = parsed["stop_loss"]
         save_position_state()
 
         # Execute trades
-        direction = parsed["direction"]
         entry = parsed["entry_price"]
         zone_start, zone_bottom = parsed["accumulation_zone"]
         zone_middle = (zone_start + zone_bottom) / 2
         tp1 = parsed["take_profits"][0]
+        tp1_qty = tp1 * 0.7
         sl = parsed["stop_loss"]
 
         # Market order
@@ -85,8 +86,6 @@ def webhook_handler(symbol):
                 price=entry,
                 qty=market_qty,
                 order_type="MARKET",
-                tp=tp1,
-                sl=sl,
                 private=True
             )
 
@@ -104,15 +103,15 @@ def webhook_handler(symbol):
             time.sleep(1)
 
         # Limit orders
-        logger.info(f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, price={zone_start}, qty={override_qty or 10}, sl={sl}")
-        place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT", tp=tp1, sl=sl)
+        logger.info(f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, price={zone_start}, qty={override_qty or 10}")
+        place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT")
 
-        logger.info(f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, price={zone_middle}, qty={override_qty or 10}, sl={sl}")
-        place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10, order_type="LIMIT",tp=tp1, sl=sl)
+        logger.info(f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, price={zone_middle}, qty={override_qty or 10}")
+        place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10, order_type="LIMIT")
 
         bottom_qty = (override_qty * 2 if override_qty else 20)
-        logger.info(f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, price={zone_bottom}, qty={bottom_qty}, sl={sl}")
-        place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT", tp=tp1, sl=sl)
+        logger.info(f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, price={zone_bottom}, qty={bottom_qty}")
+        place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
 
         return jsonify({
             "status": "parsed",

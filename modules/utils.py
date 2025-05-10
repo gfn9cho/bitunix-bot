@@ -57,20 +57,45 @@ def get_today_net_loss():
     loss = log.get(today, {}).get("loss", 0)
     return max(loss - profit, 0)
 
-def modify_tp_sl_order(symbol, tp_price, sl_price, order_id, qty):
+def generate_get_sign_api(nonce, timestamp, method, data):
+    query_params = ""
+    body = ""
+    if data:
+        if method.lower() == "get":
+            data = {k: v for k, v in data.items() if v is not None}
+            query_params = '&'.join([f"{k}={v}" for k, v in sorted(data.items())])
+            query_params = re.sub(r'[^a-zA-Z0-9]', '', query_params)
+        if method.lower() == "post":
+            # body = str(data).replace(" ", "")
+            body = str(data)
+
+    digest_input = nonce + timestamp + API_KEY + query_params + body
+    # print(f"digest_input={digest_input}")
+    digest = hashlib.sha256(digest_input.encode()).hexdigest()
+    # print(f"digest={digest}")
+
+    sign_input = digest + API_SECRET
+    # print(f"sign_input={sign_input}")
+    sign = hashlib.sha256(sign_input.encode()).hexdigest()
+
+    return sign
+
+
+def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, qty):
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
     order_data = {
         "symbol": symbol,
-        "tpTriggerPrice": str(tp_price),
+        "positionId": position_id,
+        "tpPrice": str(tp_price),
         "tpTriggerType": "MARKET_PRICE",
         "tpOrderType": "MARKET",
-        "slTriggerPrice": str(sl_price),
+        "slPrice": str(sl_price),
         "slTriggerType": "MARKET_PRICE",
         "slOrderType": "MARKET",
-        "orderId": order_id,
-        "vol": str(qty)
+        "tpQty": str(tp_qty),
+        "slQty": str(qty)
     }
 
     body_json = json.dumps(order_data, separators=(',', ':'))
@@ -88,8 +113,9 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, order_id, qty):
     }
 
     try:
-        response = requests.post(f"{BASE_URL}/api/v1/futures/tpsl/modify_order", headers=headers, data=body_json)
+        response = requests.post(f"{BASE_URL}/api/v1/futures/tpsl/position/modify_order", headers=headers, data=body_json)
         response.raise_for_status()
+        logger.info(f"[TP/SL MODIFY SUCCESS] {str(body_json)}")
         logger.info(f"[TP/SL MODIFY SUCCESS] {response.json()}")
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -98,17 +124,21 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, order_id, qty):
             logger.error(f"[TP/SL MODIFY FAILED] Response: {e.response.text}")
         return None
 
-def place_tp_sl_order(symbol, tp_price, position_id, qty):
+def place_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, qty):
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
     order_data = {
         "symbol": symbol,
         "positionId": position_id,
-        "tpTriggerPrice": str(tp_price),
+        "tpPrice": str(tp_price),
         "tpTriggerType": "MARKET_PRICE",
         "tpOrderType": "MARKET",
-        "vol": str(qty)
+        "slPrice": str(sl_price),
+        "slTriggerType": "MARKET_PRICE",
+        "slOrderType": "MARKET",
+        "tpQty": str(tp_qty),
+        "slQty": str(qty)
     }
 
     body_json = json.dumps(order_data, separators=(',', ':'))
@@ -225,3 +255,68 @@ def calculate_zone_entries(acc_zone):
 def calculate_quantities(prices, direction):
     multipliers = [10, 10, 20]  # $ amounts
     return [round(m / p, 6) for m, p in zip(multipliers, prices)]
+
+def cancel_all_new_orders(symbol):
+    try:
+        # Step 1: Prepare authentication and GET headers (query param-based request)
+        method = "get"
+        data = {"symbol": symbol}
+        random_bytes = secrets.token_bytes(32)
+        nonce = base64.b64encode(random_bytes).decode('utf-8')
+        timestamp = str(int(time.time() * 1000))
+        signature = generate_get_sign_api(nonce, timestamp,  method, data)
+
+        headers = {
+            "api-key": API_KEY,
+            "sign": signature,
+            "nonce": nonce,
+            "timestamp": timestamp,
+            "language": "en-US",
+            "Content-Type": "application/json"
+        }
+
+        # Step 2: GET pending orders
+        response = requests.get(
+            f"{BASE_URL}/api/v1/futures/trade/get_pending_orders",
+            headers=headers,
+            params=data
+        )
+        response.raise_for_status()
+        orders = response.json().get("data", {}).get("list", [])
+        new_orders = [o["orderId"] for o in orders if o.get("orderStatus") == "NEW"]
+
+        if not new_orders:
+            logger.info(f"No NEW orders found for {symbol}")
+            return
+
+        # Step 3: Cancel the orders
+        cancel_payload = {
+            "symbol": symbol,
+            "orderIds": new_orders
+        }
+
+        cancel_nonce = base64.b64encode(secrets.token_bytes(32)).decode()
+        cancel_ts = str(int(time.time() * 1000))
+        cancel_body = json.dumps(cancel_payload, separators=(',', ':'))
+        cancel_digest = hashlib.sha256((cancel_nonce + cancel_ts + API_KEY + cancel_body).encode()).hexdigest()
+        cancel_sign = hashlib.sha256((cancel_digest + API_SECRET).encode()).hexdigest()
+
+        cancel_headers = {
+            "api-key": API_KEY,
+            "sign": cancel_sign,
+            "nonce": cancel_nonce,
+            "timestamp": cancel_ts,
+            "Content-Type": "application/json"
+        }
+
+        cancel_response = requests.post(
+            f"{BASE_URL}/api/v1/futures/trade/cancel_orders",
+            headers=cancel_headers,
+            data=cancel_body
+        )
+        cancel_response.raise_for_status()
+        logger.info(f"[ORDER CANCEL SUCCESS] {symbol}: {new_orders}")
+
+    except Exception as e:
+        logger.error(f"[CANCEL ORDERS FAILED] {symbol}: {str(e)}")
+
