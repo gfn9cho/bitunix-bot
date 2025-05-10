@@ -9,6 +9,7 @@ def get_db_conn():
 def ensure_table():
     with get_db_conn() as conn:
         with conn.cursor() as cur:
+            logger.info("Ensuring position_state table exists")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS position_state (
                     symbol TEXT NOT NULL,
@@ -27,6 +28,7 @@ def ensure_table():
 
 
 def get_or_create_symbol_direction_state(symbol, direction):
+    logger.info(f"[DB] Fetching state for {symbol} {direction}")
     with get_db_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
@@ -35,8 +37,10 @@ def get_or_create_symbol_direction_state(symbol, direction):
             row = cur.fetchone()
 
             if row:
+                logger.info(f"[DB] Found existing state for {symbol} {direction}")
                 return dict(row)
             else:
+                logger.info(f"[DB] Creating new state for {symbol} {direction}")
                 cur.execute("""
                     INSERT INTO position_state (symbol, direction, position_id, entry_price, total_qty, step, tps, stop_loss, qty_distribution)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -64,6 +68,8 @@ def update_position_state(symbol, direction, updated_fields: dict):
     placeholders = ", ".join(["%s"] * len(columns))
     set_clause = ", ".join([f"{col} = EXCLUDED.{col}" for col in columns])
 
+    logger.info(f"[DB] Updating state for {symbol} {direction} with fields: {updated_fields}")
+
     with get_db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(f"""
@@ -75,6 +81,7 @@ def update_position_state(symbol, direction, updated_fields: dict):
 
 
 def delete_position_state(symbol, direction):
+    logger.info(f"[DB] Deleting state for {symbol} {direction}")
     with get_db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
