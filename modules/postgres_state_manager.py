@@ -1,6 +1,7 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from modules.config import DB_CONFIG, DEFAULT_STATE
+from modules.logger_config import logger
 
 def get_db_conn():
     return psycopg2.connect(**DB_CONFIG)
