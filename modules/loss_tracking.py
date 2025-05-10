@@ -1,6 +1,7 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from config import DB_CONFIG
+from config import DB_CONFIG, MAX_DAILY_LOSS
+import os
 
 
 def get_db_conn():
@@ -40,6 +41,11 @@ def log_profit_loss(symbol, direction, pnl, entry_type, ctime, date):
                     ctime = EXCLUDED.ctime
             """, (symbol, direction, entry_type, date, pnl, ctime))
             conn.commit()
+
+
+def is_daily_loss_limit_exceeded():
+    net = get_today_net_loss()
+    return net <= MAX_DAILY_LOSS
 
 
 def get_today_net_loss():

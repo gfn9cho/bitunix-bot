@@ -1,10 +1,10 @@
 from flask import request, jsonify
 from datetime import datetime
-from modules.utils import parse_signal, get_today_net_loss, place_order
+from modules.utils import parse_signal, place_order
 from modules.config import MAX_DAILY_LOSS
 from modules.logger_config import logger, error_logger
-# from modules.state import position_state, save_position_state
 from postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
+from loss_tracking import  is_daily_loss_limit_exceeded
 import time
 
 
@@ -14,10 +14,7 @@ def webhook_handler(symbol):
     logger.info(f"Request headers: {dict(request.headers)}")
 
     try:
-        today_loss = get_today_net_loss()
-        logger.info(f"[LOSS GUARD] Today: {today_loss} / Limit: {MAX_DAILY_LOSS}")
-
-        if today_loss >= MAX_DAILY_LOSS:
+        if is_daily_loss_limit_exceeded():
             logger.warning("Max daily loss reached. Blocking trades.")
             return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
 
@@ -50,8 +47,6 @@ def webhook_handler(symbol):
 
         parsed = parse_signal(message)
 
-        #from modules.state import get_or_create_symbol_direction_state
-
         direction = parsed["direction"].upper()
         state = get_or_create_symbol_direction_state(symbol, direction)
         state["tps"] = parsed["take_profits"]
@@ -63,8 +58,7 @@ def webhook_handler(symbol):
         state = get_or_create_symbol_direction_state(symbol, direction)
         logger.info(f"[State]:{state}")
 
-
-    # Execute trades
+        # Execute trades
         entry = parsed["entry_price"]
         zone_start, zone_bottom = parsed["accumulation_zone"]
         zone_middle = (zone_start + zone_bottom) / 2
@@ -86,13 +80,6 @@ def webhook_handler(symbol):
                 order_type="MARKET",
                 private=True
             )
-
-            # Place initial TP order to close 70% at TP1
-            #tp_qty = round(market_qty * 0.7, 6)
-            #logger.info(f"[TP SL SETUP] Setting TP1 at {tp1} for 70% of market position")
-            #place_tp_sl_order(symbol=symbol, tp_price=tp1)
-            #logger.info(f"[TP1 READY] TP SL order placed for {symbol} at price {tp1}")
-            #logger.info(f"[TP LOGGED] Setting initial TP, waiting to log P&L when filled")
 
             if response and response.get("code", -1) == 0:
                 logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
