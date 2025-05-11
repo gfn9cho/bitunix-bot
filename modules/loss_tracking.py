@@ -1,6 +1,7 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from modules.config import DB_CONFIG, MAX_DAILY_LOSS
+from modules.logger_config import error_logger
 import os
 
 
@@ -25,6 +26,33 @@ def ensure_loss_table():
             """)
             conn.commit()
 
+
+# Add to loss_tracking.py:
+def log_false_signal(symbol, direction, entry_price, interval, reason, signal_time):
+    log_date = signal_time.strftime("%Y-%m-%d")
+    try:
+        with get_db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO false_signals (symbol, direction, entry_price, interval, reason, signal_time, log_date)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (symbol, direction, entry_price, interval, reason, signal_time.isoformat(), log_date))
+                conn.commit()
+    except Exception as e:
+        error_logger.error(f"[FALSE SIGNAL LOGGING ERROR] {e}")
+
+# Make sure to run this in your database to create the table:
+#
+# CREATE TABLE false_signals (
+#     id SERIAL PRIMARY KEY,
+#     symbol TEXT NOT NULL,
+#     direction TEXT NOT NULL,
+#     entry_price NUMERIC NOT NULL,
+#     interval TEXT NOT NULL,
+#     reason TEXT NOT NULL,
+#     signal_time TIMESTAMP NOT NULL,
+#     log_date DATE NOT NULL
+# );
 
 def log_profit_loss(symbol, direction, pnl, entry_type, ctime, date):
     if entry_type not in ("PROFIT", "LOSS"):
@@ -52,9 +80,7 @@ def get_today_net_loss():
     with get_db_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT COALESCE(SUM(
-                    CASE WHEN type = 'LOSS' THEN -pnl ELSE pnl END
-                ), 0) AS net
+                SELECT COALESCE(SUM(pnl), 0) AS net
                 FROM loss_tracking
                 WHERE DATE(timestamp) = CURRENT_DATE
             """)

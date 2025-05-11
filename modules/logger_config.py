@@ -2,6 +2,9 @@ import logging
 from logging.handlers import TimedRotatingFileHandler, SMTPHandler
 import os
 
+log_dir = "logs"
+os.makedirs(log_dir, exist_ok=True)  # <- This ensures the directory exists
+
 # Standard logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("bitunix")
@@ -9,6 +12,7 @@ logger = logging.getLogger("bitunix")
 # Error logger setup
 error_logger = logging.getLogger("error_logger")
 error_logger.setLevel(logging.ERROR)
+
 
 smtp_handler = SMTPHandler(
     mailhost=("smtp.gmail.com", 587),
