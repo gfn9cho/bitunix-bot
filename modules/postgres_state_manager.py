@@ -63,7 +63,8 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
                     DEFAULT_STATE["step"],
                     DEFAULT_STATE["tps"],
                     DEFAULT_STATE["stop_loss"],
-                    DEFAULT_STATE["qty_distribution"]
+                    DEFAULT_STATE["qty_distribution"],
+                    DEFAULT_STATE["temporary"]
                 ))
                 conn.commit()
                 return DEFAULT_STATE.copy()
