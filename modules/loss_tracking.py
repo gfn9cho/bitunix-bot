@@ -1,7 +1,7 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from modules.config import DB_CONFIG, MAX_DAILY_LOSS
-from modules.logger_config import error_logger
+from modules.logger_config import error_logger, logger
 import os
 
 
@@ -60,16 +60,19 @@ def log_profit_loss(symbol, direction, positionid,  pnl, entry_type, ctime, date
         raise ValueError("entry_type must be 'PROFIT' or 'LOSS'")
     with get_db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO loss_tracking (symbol, direction, type, date, pnl, ctime)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (symbol, direction, positionid)
-                DO UPDATE SET
-                    pnl = EXCLUDED.pnl,
-                    timestamp = NOW(),
-                    ctime = EXCLUDED.ctime
-            """, (symbol, direction, positionid, entry_type, date, pnl, ctime))
-            conn.commit()
+            try:
+                cur.execute("""
+                    INSERT INTO loss_tracking (symbol, direction, type, date, pnl, ctime)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, direction, positionid)
+                    DO UPDATE SET
+                        pnl = EXCLUDED.pnl,
+                        timestamp = NOW(),
+                        ctime = EXCLUDED.ctime
+                """, (symbol, direction, positionid, entry_type, date, pnl, ctime))
+                conn.commit()
+            except Exception as insert_error:
+                logger.info(f"[POSTGRES PNL CAPTURE]: {insert_error}")
 
 
 def is_daily_loss_limit_exceeded():

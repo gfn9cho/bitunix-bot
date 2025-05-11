@@ -162,7 +162,7 @@ async def handle_ws_message(message):
                 total_qty = state.get("total_qty", 0)
                 profit_amount = float(pos_event.get("realizedPNL"))
 
-                log_profit_loss(symbol, direction, position_id, round(profit_amount, 4), "PROFIT" if profit_amount > 0 else "LOSS",
+                log_profit_loss(symbol, direction, str(position_id), round(profit_amount, 4), "PROFIT" if profit_amount > 0 else "LOSS",
                                 ctime, log_date)
 
                 logger.info(
@@ -202,8 +202,11 @@ async def handle_ws_message(message):
                 delete_position_state(symbol, direction)
                 realized_pnl = float(pos_event.get("realizedPNL"))
                 position_id = state.get("position_id")
-                log_profit_loss(symbol, direction, position_id, round(realized_pnl, 4), "PROFIT" if realized_pnl > 0 else "LOSS",
-                                ctime, log_date)
+                try:
+                    log_profit_loss(symbol, direction, str(position_id), round(realized_pnl, 4), "PROFIT" if realized_pnl > 0 else "LOSS",
+                                    ctime, log_date)
+                except Exception as log_pnl_error:
+                    logger.info(f"[CLOSE POSITION UPDATE PNL]: {log_pnl_error}")
 
     except Exception as e:
         logger.error(f"WebSocket message handler error: {str(e)}")
