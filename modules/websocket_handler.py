@@ -5,7 +5,7 @@ import time
 import json
 import random
 import string
-from modules.config import API_KEY, API_SECRET
+from modules.config import API_KEY, API_SECRET, LEVERAGE
 from modules.logger_config import logger
 # from modules.state import position_state, save_position_state, get_or_create_symbol_direction_state
 from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state, delete_position_state
@@ -143,7 +143,7 @@ async def handle_ws_message(message):
                 position_fee = float(pos_event.get("fee"))
                 logger.info(f"position_fee: {position_fee}")
                 state["position_id"] = position_id
-                avg_entry = (position_margin + position_fee) / new_qty
+                avg_entry = ((position_margin * LEVERAGE) + position_fee) / new_qty
                 logger.info(f"avg_entry: {avg_entry}")
                 state["entry_price"] = round(avg_entry, 6)
                 state["total_qty"] = round(new_qty, 3)
@@ -187,7 +187,7 @@ async def handle_ws_message(message):
                 new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
                 next_step = step + 1
                 new_tp = tps[next_step] if next_step < len(tps) else None
-                tp_qty = round(total_qty * 0.1, 3)
+                tp_qty = round(old_qty * 0.1, 3)
 
                 logger.info(f"Step {step} hit for {symbol} {direction}. New SL: {new_sl}, Next TP: {new_tp}")
 
@@ -206,6 +206,7 @@ async def handle_ws_message(message):
 
                 state["step"] = next_step
                 # state["total_qty"] = round(new_qty - tp_qty, 3)
+                logger.info(f"Step {step} hit for {symbol} {direction}. New SL: {new_sl}, Next TP: {new_tp} , tp_qty: {tp_qty}, sl_qty: {new_qty}")
                 update_position_state(symbol, direction, state)
 
             if position_event == "CLOSE" and new_qty == 0:
