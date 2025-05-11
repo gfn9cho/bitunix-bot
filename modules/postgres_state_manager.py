@@ -15,7 +15,7 @@ def ensure_table():
                 CREATE TABLE IF NOT EXISTS position_state (
                     symbol TEXT NOT NULL,
                     direction TEXT NOT NULL CHECK (direction IN ('BUY', 'SELL')),
-                    position_id TEXT,
+                    position_id TEXT NULL,
                     entry_price FLOAT,
                     total_qty FLOAT,
                     step INTEGER,
@@ -39,12 +39,12 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
             if position_id:
                 cur.execute("""
                     SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id = %s
-                """, (symbol, direction))
+                """, (symbol, direction, position_id))
                 row = cur.fetchone()
             else:
                 cur.execute("""
                                     SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id IS NULL
-                                """, (symbol, direction))
+                                """, (symbol, direction, position_id))
                 row = cur.fetchone()
 
             if row:
