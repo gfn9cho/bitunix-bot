@@ -52,8 +52,8 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
             else:
                 logger.info(f"[DB] Creating new state for {symbol} {direction} {position_id}")
                 cur.execute("""
-                    INSERT INTO position_state (symbol, direction, position_id, entry_price, total_qty, step, tps, stop_loss, qty_distribution)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO position_state (symbol, direction, position_id, entry_price, total_qty, step, tps, stop_loss, qty_distribution, temporary)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     symbol,
                     direction,
