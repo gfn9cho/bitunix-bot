@@ -198,7 +198,7 @@ async def handle_ws_message(message):
                 # state["total_qty"] = round(new_qty - tp_qty, 3)
                 logger.info(
                     f"Step {step} hit for {symbol} {direction}. New SL: {new_sl}, Next TP: {new_tp} , tp_qty: {tp_qty}, sl_qty: {new_qty}")
-                update_position_state(symbol, direction, state)
+                update_position_state(symbol, direction, position_id, state)
 
             if position_event == "CLOSE" and new_qty == 0:
                 delete_position_state(symbol, direction, position_id)
