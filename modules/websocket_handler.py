@@ -162,7 +162,7 @@ async def handle_ws_message(message):
                 total_qty = state.get("total_qty", 0)
                 profit_amount = float(pos_event.get("realizedPNL"))
 
-                log_profit_loss(symbol, direction, round(profit_amount, 4), "PROFIT" if profit_amount > 0 else "LOSS",
+                log_profit_loss(symbol, direction, position_id, round(profit_amount, 4), "PROFIT" if profit_amount > 0 else "LOSS",
                                 ctime, log_date)
 
                 logger.info(
@@ -201,7 +201,7 @@ async def handle_ws_message(message):
             if position_event == "CLOSE" and new_qty == 0:
                 delete_position_state(symbol, direction)
                 realized_pnl = float(pos_event.get("realizedPNL"))
-                log_profit_loss(symbol, direction, round(realized_pnl, 4), "PROFIT" if realized_pnl > 0 else "LOSS",
+                log_profit_loss(symbol, direction, position_id, round(realized_pnl, 4), "PROFIT" if realized_pnl > 0 else "LOSS",
                                 ctime, log_date)
 
     except Exception as e:

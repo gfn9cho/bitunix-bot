@@ -16,6 +16,7 @@ def ensure_loss_table():
                 CREATE TABLE IF NOT EXISTS loss_tracking (
                     symbol TEXT NOT NULL,
                     direction TEXT NOT NULL CHECK (direction IN ('BUY', 'SELL')),
+                    positionid TEXT NOT NULL,
                     type TEXT NOT NULL CHECK (type IN ('PROFIT', 'LOSS')),
                     date DATE NOT NULL,
                     pnl FLOAT NOT NULL,
@@ -54,7 +55,7 @@ def log_false_signal(symbol, direction, entry_price, interval, reason, signal_ti
 #     log_date DATE NOT NULL
 # );
 
-def log_profit_loss(symbol, direction, pnl, entry_type, ctime, date):
+def log_profit_loss(symbol, direction, positionid,  pnl, entry_type, ctime, date):
     if entry_type not in ("PROFIT", "LOSS"):
         raise ValueError("entry_type must be 'PROFIT' or 'LOSS'")
     with get_db_conn() as conn:
@@ -62,12 +63,12 @@ def log_profit_loss(symbol, direction, pnl, entry_type, ctime, date):
             cur.execute("""
                 INSERT INTO loss_tracking (symbol, direction, type, date, pnl, ctime)
                 VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (symbol, direction, type, date)
+                ON CONFLICT (symbol, direction, positionid)
                 DO UPDATE SET
-                    pnl = loss_tracking.pnl + EXCLUDED.pnl,
+                    pnl = EXCLUDED.pnl,
                     timestamp = NOW(),
                     ctime = EXCLUDED.ctime
-            """, (symbol, direction, entry_type, date, pnl, ctime))
+            """, (symbol, direction, positionid, entry_type, date, pnl, ctime))
             conn.commit()
 
 
