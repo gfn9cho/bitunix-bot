@@ -63,7 +63,7 @@ def log_profit_loss(symbol, direction, positionid,  pnl, entry_type, ctime, date
             try:
                 cur.execute("""
                     INSERT INTO loss_tracking (symbol, direction, positionid, type, date, pnl, ctime)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (symbol, direction, positionid)
                     DO UPDATE SET
                         pnl = EXCLUDED.pnl,
