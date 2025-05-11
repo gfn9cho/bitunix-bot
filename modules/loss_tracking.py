@@ -62,7 +62,7 @@ def log_profit_loss(symbol, direction, positionid,  pnl, entry_type, ctime, date
         with conn.cursor() as cur:
             try:
                 cur.execute("""
-                    INSERT INTO loss_tracking (symbol, direction, type, date, pnl, ctime)
+                    INSERT INTO loss_tracking (symbol, direction, positionid, type, date, pnl, ctime)
                     VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (symbol, direction, positionid)
                     DO UPDATE SET
