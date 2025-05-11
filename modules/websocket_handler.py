@@ -201,6 +201,7 @@ async def handle_ws_message(message):
             if position_event == "CLOSE" and new_qty == 0:
                 delete_position_state(symbol, direction)
                 realized_pnl = float(pos_event.get("realizedPNL"))
+                position_id = state.get("position_id")
                 log_profit_loss(symbol, direction, position_id, round(realized_pnl, 4), "PROFIT" if realized_pnl > 0 else "LOSS",
                                 ctime, log_date)
 
