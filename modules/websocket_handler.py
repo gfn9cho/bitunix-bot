@@ -106,7 +106,7 @@ async def handle_ws_message(message):
             direction = "BUY" if side == "LONG" else "SELL"
             position_event = pos_event.get("event")
             new_qty = float(pos_event.get("qty", 0))
-            position_id = pos_event.get("positionId")
+            position_id = str(pos_event.get("positionId"))
             state = get_or_create_symbol_direction_state(symbol, direction, position_id=position_id)
             logger.info(f"State inside position: {state}")
             # Weighted average entry price update
