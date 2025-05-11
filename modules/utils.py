@@ -275,6 +275,7 @@ def cancel_all_new_orders(symbol):
             "language": "en-US",
             "Content-Type": "application/json"
         }
+        logger.info(f"Pending Orders: {headers}")
 
         # Step 2: GET pending orders
         response = requests.get(
@@ -283,9 +284,11 @@ def cancel_all_new_orders(symbol):
             params=data
         )
         response.raise_for_status()
-        orders = response.json().get("data", {}).get("list", [])
-        logger.info(f"[PENDING ORDER]: {orders}")
-        new_orders = [o["orderId"] for o in orders if o.get("status") == "NEW"]
+        logger.info(f"Pending Orders: {response}")
+
+        orders = response.json().get("data", {}).get("orderList", [])
+        new_orders = [o["orderId"] for o in orders if re.match(r'NEW?',o.get("status"))]
+        logger.info(f"[ORDERS FOR CANCEL]: {new_orders}")
 
         if not new_orders:
             logger.info(f"No NEW orders found for {symbol}")
