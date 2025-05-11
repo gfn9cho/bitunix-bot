@@ -25,5 +25,6 @@ DEFAULT_STATE = {
     "step": 0,
     "tps": [],
     "stop_loss": 0.0,
-    "qty_distribution": [0.7, 0.1, 0.1, 0.1]
+    "qty_distribution": [0.7, 0.1, 0.1, 0.1],
+    "temporary": True
 }
