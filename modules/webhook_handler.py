@@ -48,13 +48,15 @@ def webhook_handler(symbol):
         parsed = parse_signal(message)
 
         direction = parsed["direction"].upper()
+        # Temporary pre-position state (position_id will be set later by websocket)
         state = get_or_create_symbol_direction_state(symbol, direction)
+        state["temporary"] = True
         state["tps"] = parsed["take_profits"]
         state["entry_price"] = parsed["entry_price"]
         state["step"] = 0
         state["qty_distribution"] = [0.7, 0.1, 0.1, 0.1]
         state["stop_loss"] = parsed["stop_loss"]
-        update_position_state(symbol, direction, state)
+        update_position_state(symbol, direction, None, state)
         logger.info(f"[State]:{state}")
 
         entry = parsed["entry_price"]

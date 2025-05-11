@@ -22,10 +22,13 @@ def ensure_table():
                     tps FLOAT[],
                     stop_loss FLOAT,
                     qty_distribution FLOAT[],
-                    PRIMARY KEY (symbol, direction)
+                    PRIMARY KEY (symbol, direction, position_id)
                 );
             """)
             conn.commit()
+
+# Note: This assumes only one open position per (symbol, direction).
+# Temporary false signal state is inserted with position_id = None and cleaned separately.
 
 
 def get_or_create_symbol_direction_state(symbol, direction):
@@ -82,13 +85,18 @@ def update_position_state(symbol, direction, updated_fields: dict):
 
 
 
-def delete_position_state(symbol, direction):
+def delete_position_state(symbol, direction, position_id=None):
     logger.info(f"[DB] Deleting state for {symbol} {direction}")
     with get_db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                DELETE FROM position_state WHERE symbol = %s AND direction = %s
-            """, (symbol, direction))
+            if position_id:
+                cur.execute("""
+                    DELETE FROM position_state WHERE symbol = %s AND direction = %s AND position_id = %s
+                """, (symbol, direction, position_id))
+            else:
+                cur.execute("""
+                    DELETE FROM position_state WHERE symbol = %s AND direction = %s AND position_id IS NULL
+                """, (symbol, direction))
             conn.commit()
 
 # Ensure table exists at import
