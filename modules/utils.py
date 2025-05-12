@@ -287,7 +287,7 @@ def cancel_all_new_orders(symbol):
         logger.info(f"Pending Orders: {response}")
 
         orders = response.json().get("data", {}).get("orderList", [])
-        new_orders = [o["orderId"] for o in orders if re.match(r'NEW?',o.get("status"))]
+        new_orders = [{"orderId": o["orderId"]} for o in orders if re.match(r'NEW?',o.get("status"))]
         logger.info(f"[ORDERS FOR CANCEL]: {new_orders}")
 
         if not new_orders:
@@ -297,7 +297,7 @@ def cancel_all_new_orders(symbol):
         # Step 3: Cancel the orders
         cancel_payload = {
             "symbol": symbol,
-            "orderIds": new_orders
+            "orderList": new_orders
         }
 
         cancel_nonce = base64.b64encode(secrets.token_bytes(32)).decode()
