@@ -46,27 +46,25 @@ def webhook_handler(symbol):
         logger.info(f"[SYMBOL_QTY] Using override_qty={override_qty} for all order placements")
 
         parsed = parse_signal(message)
-
         direction = parsed["direction"].upper()
-        # Temporary pre-position state (position_id will be set later by websocket)
-        state = get_or_create_symbol_direction_state(symbol, direction, True)
-        state["tps"] = parsed["take_profits"]
-        state["entry_price"] = parsed["entry_price"]
-        state["step"] = 0
-        state["qty_distribution"] = [0.7, 0.1, 0.1, 0.1]
-        state["stop_loss"] = parsed["stop_loss"]
-
-
-        entry = parsed["entry_price"]
-        zone_start, zone_bottom = parsed["accumulation_zone"]
-        logger.info(f"[ACC ZONES]: {zone_start}: {zone_bottom}")
-        zone_middle = (zone_start + zone_bottom) / 2
-        # tp1 = parsed["take_profits"][0]
-        # sl = parsed["stop_loss"]
-
         signal_time = datetime.utcnow()
+        entry = parsed["entry_price"]
 
         async def process_trade():
+            # Temporary pre-position state (position_id will be set later by websocket)
+            state = get_or_create_symbol_direction_state(symbol, direction)
+            state["tps"] = parsed["take_profits"]
+            state["entry_price"] = parsed["entry_price"]
+            state["step"] = 0
+            state["qty_distribution"] = [0.7, 0.1, 0.1, 0.1]
+            state["stop_loss"] = parsed["stop_loss"]
+
+            zone_start, zone_bottom = parsed["accumulation_zone"]
+            logger.info(f"[ACC ZONES]: {zone_start}: {zone_bottom}")
+            zone_middle = (zone_start + zone_bottom) / 2
+            # tp1 = parsed["take_profits"][0]
+            # sl = parsed["stop_loss"]
+
             market_qty = override_qty if override_qty else 10
             logger.info(f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}")
             retries = 3
@@ -80,9 +78,8 @@ def webhook_handler(symbol):
                     private=True
                 )
                 if response and response.get("code", -1) == 0:
-                    state["temporary"] = False
-                    update_position_state(symbol, direction, None, False, state)
-                    after_update_state = get_or_create_symbol_direction_state(symbol, direction, False)
+                    update_position_state(symbol, direction, None, state)
+                    after_update_state = get_or_create_symbol_direction_state(symbol, direction)
                     logger.info(f"[State]:{after_update_state}")
                     logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
                     break

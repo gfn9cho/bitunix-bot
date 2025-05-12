@@ -11,10 +11,12 @@ from datetime import datetime
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
 
-#LOSS_LOG_FILE = "daily_loss_log.json"
+
+# LOSS_LOG_FILE = "daily_loss_log.json"
 
 def get_today():
     return datetime.utcnow().strftime("%Y-%m-%d")
+
 
 # def read_loss_log():
 #     if not os.path.exists(LOSS_LOG_FILE):
@@ -81,22 +83,9 @@ def generate_get_sign_api(nonce, timestamp, method, data):
     return sign
 
 
-def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, qty):
+def submit_modified_tp_sl_order(order_data):
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
-
-    order_data = {
-        "symbol": symbol,
-        "positionId": position_id,
-        "tpPrice": str(tp_price),
-        "tpTriggerType": "MARKET_PRICE",
-        "tpOrderType": "MARKET",
-        "slPrice": str(sl_price),
-        "slTriggerType": "MARKET_PRICE",
-        "slOrderType": "MARKET",
-        "tpQty": str(tp_qty),
-        "slQty": str(qty)
-    }
 
     body_json = json.dumps(order_data, separators=(',', ':'))
     digest_input = nonce + timestamp + API_KEY + body_json
@@ -113,7 +102,7 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, qty):
     }
 
     try:
-        response = requests.post(f"{BASE_URL}/api/v1/futures/tpsl/position/modify_order", headers=headers, data=body_json)
+        response = requests.post(f"{BASE_URL}/api/v1/futures/tpsl/modify_order", headers=headers, data=body_json)
         response.raise_for_status()
         logger.info(f"[TP/SL MODIFY SUCCESS] {str(body_json)}")
         logger.info(f"[TP/SL MODIFY SUCCESS] {response.json()}")
@@ -123,6 +112,53 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, qty):
         if e.response is not None:
             logger.error(f"[TP/SL MODIFY FAILED] Response: {e.response.text}")
         return None
+
+
+def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
+    url = "https://fapi.bitunix.com/api/v1//futures/tpsl/get_pending_orders"
+    # url = "https://fapi.bitunix.com/api/v1/futures/trade/get_pending_orders"
+    random_bytes = secrets.token_bytes(32)
+    nonce = base64.b64encode(random_bytes).decode('utf-8')
+
+    # create message and timestamp
+    timestamp = str(int(time.time() * 1000))
+
+    data = {"symbol": symbol,
+            "positionId": position_id}
+    method = "get"
+    sign = generate_get_sign_api(nonce, timestamp, method, data)
+    headers = {
+        "api-key": API_KEY,
+        "nonce": nonce,
+        "timestamp": timestamp,
+        "sign": sign,
+        "language": "en-US",
+        "Content-Type": "application/json"
+    }
+    # response = requests.post(url, headers=headers, json=data)
+    response = requests.request(method, url, headers=headers, params=data, timeout=10)
+    orders = response.json().get("data", {})
+    for o in orders:
+        if o["tpPrice"] is None and o["positionId"] == position_id:
+            sl_orders = {"data": {
+                "symbol": symbol,
+                "orderId": o["id"],
+                "slPrice": str(sl_price),
+                "slStopType": "MARK_PRICE",
+                "slOrderType": "MARKET",
+                "slQty": str(sl_qty)}}
+        elif o["positionId"] == position_id:
+            tp_orders = {"data": {
+                "symbol": symbol,
+                "orderId": o["id"],
+                "tpPrice": str(tp_price),
+                "tpStopType": "MARK_PRICE",
+                "tpOrderType": "MARKET",
+                "tpQty": str(tp_qty)
+            }}
+    for o in [tp_orders, sl_orders]:
+        submit_modified_tp_sl_order(o["data"])
+
 
 def place_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, qty):
     timestamp = str(int(time.time() * 1000))
@@ -166,7 +202,9 @@ def place_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, qty):
             logger.error(f"[TP/SL ORDER FAILED] Response: {e.response.text}")
         return None
 
-def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True, reduce_only=False):
+
+def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True,
+                reduce_only=False):
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
@@ -222,6 +260,7 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=No
             logger.error(f"[ORDER FAILED] Response: {e.response.text}")
         return None
 
+
 def parse_signal(message):
     lines = message.split('\n')
     signal_type = lines[0].strip().lower()
@@ -248,14 +287,17 @@ def parse_signal(message):
         "accumulation_zone": [acc_top, acc_bottom]
     }
 
+
 def calculate_zone_entries(acc_zone):
     top, bottom = acc_zone
     mid = (top + bottom) / 2
     return [top, mid, bottom]
 
+
 def calculate_quantities(prices, direction):
     multipliers = [10, 10, 20]  # $ amounts
     return [round(m / p, 6) for m, p in zip(multipliers, prices)]
+
 
 def cancel_all_new_orders(symbol):
     try:
@@ -265,7 +307,7 @@ def cancel_all_new_orders(symbol):
         random_bytes = secrets.token_bytes(32)
         nonce = base64.b64encode(random_bytes).decode('utf-8')
         timestamp = str(int(time.time() * 1000))
-        signature = generate_get_sign_api(nonce, timestamp,  method, data)
+        signature = generate_get_sign_api(nonce, timestamp, method, data)
 
         headers = {
             "api-key": API_KEY,
@@ -287,7 +329,7 @@ def cancel_all_new_orders(symbol):
         logger.info(f"Pending Orders: {response}")
 
         orders = response.json().get("data", {}).get("orderList", [])
-        new_orders = [{"orderId": o["orderId"]} for o in orders if re.match(r'NEW?',o.get("status"))]
+        new_orders = [{"orderId": o["orderId"]} for o in orders if re.match(r'NEW?', o.get("status"))]
         logger.info(f"[ORDERS FOR CANCEL]: {new_orders}")
 
         if not new_orders:
@@ -326,4 +368,3 @@ def cancel_all_new_orders(symbol):
 
     except Exception as e:
         logger.error(f"[CANCEL ORDERS FAILED] {symbol}: {str(e)}")
-

@@ -10,7 +10,7 @@ from modules.logger_config import logger
 # from modules.state import position_state, save_position_state, get_or_create_symbol_direction_state
 from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state, \
     delete_position_state
-from modules.utils import place_tp_sl_order, cancel_all_new_orders
+from modules.utils import place_tp_sl_order, cancel_all_new_orders, modify_tp_sl_order
 from modules.loss_tracking import log_profit_loss
 from datetime import datetime
 
@@ -107,7 +107,7 @@ async def handle_ws_message(message):
             position_event = pos_event.get("event")
             new_qty = float(pos_event.get("qty", 0))
             position_id = str(pos_event.get("positionId"))
-            state = get_or_create_symbol_direction_state(symbol, direction, False, position_id = position_id)
+            state = get_or_create_symbol_direction_state(symbol, direction, position_id=position_id)
             logger.info(f"State inside position: {state}")
             # Weighted average entry price update
             old_qty = state.get("total_qty", 0)
@@ -147,16 +147,16 @@ async def handle_ws_message(message):
                         if position_event != "OPEN" and new_qty > old_qty:
                             logger.info(
                                 f"[TP/SL SET] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
-                            # modify_tp_sl_order(symbol, tp1, sl_price, position_id, tp_qty, full_qty)
-                            place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
-                                              tp_qty=tp_qty, qty=full_qty)
+                            modify_tp_sl_order(symbol, tp1, sl_price, position_id, tp_qty, full_qty)
+                            # place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
+                            #                 tp_qty=tp_qty, qty=full_qty)
                         else:
                             place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
                                               tp_qty=tp_qty, qty=full_qty)
                             logger.info(
                                 f"[TP/SL SET] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
                 logger.info(f"In Here 4: {state}")
-                update_position_state(symbol, direction, False, position_id, state)
+                update_position_state(symbol, direction, position_id, state)
                 logger.info(f"[TP/SL PLACED]")
 
             if position_event == "UPDATE" and new_qty < old_qty:
@@ -192,21 +192,21 @@ async def handle_ws_message(message):
 
                 if new_tp:
                     logger.info(f"[POSITION_NEW_TP]: {symbol} {new_tp} {new_sl} {position_id} {tp_qty} {new_qty}")
-                    place_tp_sl_order(symbol=symbol, tp_price=new_tp, sl_price=new_sl, position_id=position_id,
-                                      tp_qty=tp_qty, qty=new_qty)
+                    modify_tp_sl_order(symbol=symbol, tp_price=new_tp, sl_price=new_sl, position_id=position_id,
+                                       tp_qty=tp_qty, sl_qty=new_qty)
                 else:
                     logger.info(f"[POSITION_NO_TP]: {symbol} {new_tp} {new_sl} {position_id} {tp_qty} {new_qty}")
-                    place_tp_sl_order(symbol=symbol, tp_price=None, sl_price=new_sl, position_id=position_id,
-                                      tp_qty=None, qty=new_qty)
+                    modify_tp_sl_order(symbol=symbol, tp_price=None, sl_price=new_sl, position_id=position_id,
+                                       tp_qty=None, sl_qty=new_qty)
 
                 state["step"] = next_step
                 # state["total_qty"] = round(new_qty - tp_qty, 3)
                 logger.info(
                     f"Step {step} hit for {symbol} {direction}. New SL: {new_sl}, Next TP: {new_tp} , tp_qty: {tp_qty}, sl_qty: {new_qty}")
-                update_position_state(symbol, direction, False, position_id, state)
+                update_position_state(symbol, direction, position_id, state)
 
             if position_event == "CLOSE" and new_qty == 0:
-                delete_position_state(symbol, direction, False, position_id)
+                # delete_position_state(symbol, direction, position_id)
                 realized_pnl = float(pos_event.get("realizedPNL"))
                 position_id = state.get("position_id")
                 try:
