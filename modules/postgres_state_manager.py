@@ -41,7 +41,7 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
                 cur.execute("""
                     UPDATE position_state
                     SET position_id = %s
-                    WHERE symbol = %s AND direction = %s AND position_id IS NULL 
+                    WHERE symbol = %s AND direction = %s AND position_id='' 
                 """, (position_id, symbol, direction))
                 cur.execute(f"""
                                 SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id = %s
@@ -49,7 +49,7 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
                 row = cur.fetchone()
             else:
                 cur.execute(f"""
-                                SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id IS NULL
+                                SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id=''
                                 """, (symbol, direction))
                 row = cur.fetchone()
 
@@ -75,7 +75,7 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
                 conn.commit()
                 # Fetch and return the inserted row
                 cur.execute("""
-                    SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id IS NULL
+                    SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id=''
                 """, (symbol, direction))
                 row = cur.fetchone()
                 return dict(row)
@@ -124,7 +124,7 @@ def delete_position_state(symbol, direction, position_id=None):
                 """, (symbol, direction, position_id))
             else:
                 cur.execute("""
-                    DELETE FROM position_state WHERE symbol = %s AND direction = %s AND position_id IS NULL
+                    DELETE FROM position_state WHERE symbol = %s AND direction = %s AND position_id=''
                 """, (symbol, direction))
             conn.commit()
 
