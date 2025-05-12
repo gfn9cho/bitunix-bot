@@ -55,7 +55,7 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
         if is_false:
             logger.warning(f"❌ False signal ignored: {symbol} {direction} at {entry_price}")
             log_false_signal(symbol, direction, entry_price, interval, "false_signal", signal_time)
-            delete_position_state(symbol, direction, None)
+            delete_position_state(symbol, direction, True, None)
             return
 
         logger.info(f"✅ Valid signal confirmed: {symbol} {direction} at {entry_price}")

@@ -49,8 +49,7 @@ def webhook_handler(symbol):
 
         direction = parsed["direction"].upper()
         # Temporary pre-position state (position_id will be set later by websocket)
-        state = get_or_create_symbol_direction_state(symbol, direction)
-        state["temporary"] = True
+        state = get_or_create_symbol_direction_state(symbol, direction, True)
         state["tps"] = parsed["take_profits"]
         state["entry_price"] = parsed["entry_price"]
         state["step"] = 0
@@ -82,8 +81,9 @@ def webhook_handler(symbol):
                 )
                 if response and response.get("code", -1) == 0:
                     state["temporary"] = False
-                    update_position_state(symbol, direction, None, state)
-                    logger.info(f"[State]:{state}")
+                    update_position_state(symbol, direction, None, False, state)
+                    after_update_state = get_or_create_symbol_direction_state(symbol, direction, False)
+                    logger.info(f"[State]:{after_update_state}")
                     logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
                     break
                 error_logger.error(f"[ORDER FAILURE] Attempt {attempt + 1}/{retries} - symbol={symbol}, direction={direction}, response={response}")

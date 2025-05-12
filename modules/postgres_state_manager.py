@@ -3,6 +3,7 @@ from psycopg2.extras import RealDictCursor
 from modules.config import DB_CONFIG, DEFAULT_STATE
 from modules.logger_config import logger
 
+
 def get_db_conn():
     return psycopg2.connect(**DB_CONFIG)
 
@@ -23,35 +24,36 @@ def ensure_table():
                     stop_loss FLOAT,
                     qty_distribution FLOAT[],
                     temporary BOOLEAN,
-                    UNIQUE (symbol, direction, position_id)
+                    UNIQUE (symbol, direction, temporary )
                 );
             """)
             conn.commit()
+
 
 # Note: This assumes only one open position per (symbol, direction).
 # Temporary false signal state is inserted with position_id = None and cleaned separately.
 
 
-def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
-    logger.info(f"[DB] Fetching state for {symbol} {direction} {position_id}")
+def get_or_create_symbol_direction_state(symbol, direction, temporary, position_id=None):
+    logger.info(f"[DB] Fetching state for {symbol} {direction} {position_id} {temporary}")
     with get_db_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if position_id:
                 cur.execute(f"""
-                    SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id = %s
+                                SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id = %s
                 """, (symbol, direction, position_id))
                 row = cur.fetchone()
             else:
                 cur.execute(f"""
-                                    SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id IS NULL
-                                """, (symbol, direction))
+                                SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND temporary = %s AND position_id IS NULL
+                                """, (symbol, direction, temporary))
                 row = cur.fetchone()
 
             if row:
-                logger.info(f"[DB] Found existing state for {symbol} {direction} {position_id}")
+                logger.info(f"[DB] Found existing state for {symbol} {direction} {position_id} {temporary}")
                 return dict(row)
             else:
-                logger.info(f"[DB] Creating new state for {symbol} {direction} {position_id}")
+                logger.info(f"[DB] Creating new state for {symbol} {direction} {position_id} {temporary}")
                 cur.execute("""
                     INSERT INTO position_state (symbol, direction, position_id, entry_price, total_qty, step, tps, stop_loss, qty_distribution, temporary)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -70,25 +72,26 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
                 conn.commit()
                 # Fetch and return the inserted row
                 cur.execute("""
-                    SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id IS NULL
-                """, (symbol, direction))
+                    SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND temporary = %s AND position_id IS NULL
+                """, (symbol, direction, temporary))
                 row = cur.fetchone()
                 return dict(row)
 
-def update_position_state(symbol, direction, position_id, updated_fields: dict):
+
+def update_position_state(symbol, direction, position_id, temporary, updated_fields: dict):
     if not updated_fields:
         return
     # Remove symbol and direction if mistakenly included
     # Only include fields that are explicitly updated to avoid overwriting with defaults
-    columns = [col for col in updated_fields.keys() if col not in ("symbol", "direction", "position_id")]
+    columns = [col for col in updated_fields.keys() if col not in ("symbol", "direction", "position_id", "temporary")]
     values = [updated_fields[col] for col in columns]
     if not columns:
-        logger.warning(f"[DB] No valid fields to update for {symbol} {direction} {position_id}")
+        logger.warning(f"[DB] No valid fields to update for {symbol} {direction} {position_id} {temporary}")
         return
     placeholders = ", ".join(["%s"] * len(values))
     set_clause = ", ".join([f"{col} = EXCLUDED.{col}" for col in columns])
 
-    logger.info(f"[DB] Updating state for {symbol} {direction} {position_id} with fields: {updated_fields}")
+    logger.info(f"[DB] Updating state for {symbol} {direction} {position_id} {temporary} with fields: {updated_fields}")
 
     with get_db_conn() as conn:
         with conn.cursor() as cur:
@@ -98,31 +101,44 @@ def update_position_state(symbol, direction, position_id, updated_fields: dict):
                     UPDATE position_state
                     SET position_id = %s
                     WHERE symbol = %s AND direction = %s AND position_id IS NULL and temporary is FALSE 
-                """, (symbol, direction, position_id))
+                """, (position_id, symbol, direction))
                 if cur.rowcount > 0:
                     logger.info(f"[DB] Promoted NULL position_id to {position_id} for {symbol} {direction}")
+                cur.execute(f"""
+                        INSERT INTO position_state (symbol, direction, position_id, temporary, {', '.join(columns)})
+                        VALUES (%s, %s, %s, %s, {placeholders})
+                        ON CONFLICT (symbol, direction, position_id, temporary ) DO UPDATE SET {set_clause}
+                """, [symbol, direction, position_id, temporary] + values)
+            if position_id is None:
+                # First try updating NULL entry
+                cur.execute("""
+                        UPDATE position_state
+                        SET temporary = %s
+                        WHERE symbol = %s AND direction = %s AND position_id IS NULL
+                    """),[temporary, symbol, direction]
+                cur.execute(f"""
+                        INSERT INTO position_state (symbol, direction, temporary {', '.join(columns)})
+                        VALUES (%s, %s, %s, {placeholders})
+                        ON CONFLICT (symbol, direction, temporary ) DO UPDATE SET {set_clause}
+                    """, [symbol, direction, temporary] + values)
 
-            cur.execute(f"""
-                INSERT INTO position_state (symbol, direction, position_id, {', '.join(columns)})
-                VALUES (%s, %s, %s, {placeholders})
-                ON CONFLICT (symbol, direction, position_id) DO UPDATE SET {set_clause}
-            """, [symbol, direction, position_id] + values)
             conn.commit()
 
 
-def delete_position_state(symbol, direction, position_id=None):
-    logger.info(f"[DB] Deleting state for {symbol} {direction}")
+def delete_position_state(symbol, direction, temporary, position_id=None):
+    logger.info(f"[DB] Deleting state for {symbol} {direction} {temporary} {position_id}")
     with get_db_conn() as conn:
         with conn.cursor() as cur:
             if position_id:
                 cur.execute("""
-                    DELETE FROM position_state WHERE symbol = %s AND direction = %s AND position_id = %s
-                """, (symbol, direction, position_id))
+                    DELETE FROM position_state WHERE symbol = %s AND direction = %s AND position_id = %s and temporary = %s
+                """, (symbol, direction, position_id, temporary))
             else:
                 cur.execute("""
-                    DELETE FROM position_state WHERE symbol = %s AND direction = %s AND position_id IS NULL
-                """, (symbol, direction))
+                    DELETE FROM position_state WHERE symbol = %s AND direction = %s AND temporary = %s AND position_id IS NULL
+                """, (symbol, direction, temporary))
             conn.commit()
+
 
 # Ensure table exists at import
 ensure_table()
