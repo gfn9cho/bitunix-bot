@@ -33,11 +33,11 @@ def ensure_table():
 # Temporary false signal state is inserted with position_id = None and cleaned separately.
 
 
-def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
+def get_or_create_symbol_direction_state(symbol, direction, position_id=''):
     logger.info(f"[DB] Fetching state for {symbol} {direction} {position_id} ")
     with get_db_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            if position_id:
+            if position_id != '':
                 cur.execute("""
                     UPDATE position_state
                     SET position_id = %s
@@ -98,13 +98,13 @@ def update_position_state(symbol, direction, position_id, updated_fields: dict):
 
     with get_db_conn() as conn:
         with conn.cursor() as cur:
-            if position_id is not None:
+            if position_id != '':
                 cur.execute(f"""
                         INSERT INTO position_state (symbol, direction, position_id,  {', '.join(columns)})
                         VALUES (%s, %s, %s, {placeholders})
                         ON CONFLICT (symbol, direction, position_id ) DO UPDATE SET {set_clause}
                 """, [symbol, direction, position_id] + values)
-            if position_id is None:
+            if position_id == '':
                 cur.execute(f"""
                         INSERT INTO position_state (symbol, direction, position_id, {', '.join(columns)})
                         VALUES (%s, %s %s, {placeholders})

@@ -78,7 +78,7 @@ def webhook_handler(symbol):
                     private=True
                 )
                 if response and response.get("code", -1) == 0:
-                    update_position_state(symbol, direction, None, state)
+                    update_position_state(symbol, direction, '', state)
                     after_update_state = get_or_create_symbol_direction_state(symbol, direction)
                     logger.info(f"[State]:{after_update_state}")
                     logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
