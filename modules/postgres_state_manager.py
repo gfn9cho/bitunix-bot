@@ -83,7 +83,7 @@ def get_or_create_symbol_direction_state(symbol, direction, temporary, position_
                 return dict(row)
 
 
-def update_position_state(symbol, direction, position_id, temporary, updated_fields: dict):
+def update_position_state(symbol, direction, temporary,  position_id,  updated_fields: dict):
     if not updated_fields:
         return
     # Remove symbol and direction if mistakenly included
