@@ -100,24 +100,24 @@ def update_position_state(symbol, direction, position_id, temporary, updated_fie
                 cur.execute("""
                     UPDATE position_state
                     SET position_id = %s
-                    WHERE symbol = %s AND direction = %s AND position_id IS NULL and temporary is FALSE 
+                    WHERE symbol = %s AND direction = %s AND position_id IS NULL and temporary is false 
                 """, (position_id, symbol, direction))
                 if cur.rowcount > 0:
                     logger.info(f"[DB] Promoted NULL position_id to {position_id} for {symbol} {direction}")
                 cur.execute(f"""
-                        INSERT INTO position_state (symbol, direction, position_id, temporary, {', '.join(columns)})
-                        VALUES (%s, %s, %s, %s, {placeholders})
-                        ON CONFLICT (symbol, direction, position_id, temporary ) DO UPDATE SET {set_clause}
-                """, [symbol, direction, position_id, temporary] + values)
+                        INSERT INTO position_state (symbol, direction, temporary, {', '.join(columns)})
+                        VALUES (%s, %s, %s, {placeholders})
+                        ON CONFLICT (symbol, direction, temporary ) DO UPDATE SET {set_clause}
+                """, [symbol, direction, temporary] + values)
             if position_id is None:
                 # First try updating NULL entry
                 cur.execute("""
                         UPDATE position_state
-                        SET temporary = %s
+                        SET temporary = False
                         WHERE symbol = %s AND direction = %s AND position_id IS NULL
-                    """),[temporary, symbol, direction]
+                    """, [symbol, direction])
                 cur.execute(f"""
-                        INSERT INTO position_state (symbol, direction, temporary {', '.join(columns)})
+                        INSERT INTO position_state (symbol, direction, temporary, {', '.join(columns)})
                         VALUES (%s, %s, %s, {placeholders})
                         ON CONFLICT (symbol, direction, temporary ) DO UPDATE SET {set_clause}
                     """, [symbol, direction, temporary] + values)
