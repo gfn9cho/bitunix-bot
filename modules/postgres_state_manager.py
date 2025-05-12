@@ -107,7 +107,7 @@ def update_position_state(symbol, direction, position_id, updated_fields: dict):
             if position_id == '':
                 cur.execute(f"""
                         INSERT INTO position_state (symbol, direction, position_id, {', '.join(columns)})
-                        VALUES (%s, %s %s, {placeholders})
+                        VALUES (%s, %s, %s, {placeholders})
                         ON CONFLICT (symbol, direction, position_id ) DO UPDATE SET {set_clause}
                     """, [symbol, direction, position_id] + values)
 
