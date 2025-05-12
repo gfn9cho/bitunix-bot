@@ -16,6 +16,7 @@ def ensure_table():
                 CREATE TABLE IF NOT EXISTS position_state (
                     symbol TEXT NOT NULL,
                     direction TEXT NOT NULL CHECK (direction IN ('BUY', 'SELL')),
+                    temporary BOOLEAN,
                     position_id TEXT NULL,
                     entry_price FLOAT,
                     total_qty FLOAT,
@@ -23,14 +24,13 @@ def ensure_table():
                     tps FLOAT[],
                     stop_loss FLOAT,
                     qty_distribution FLOAT[],
-                    temporary BOOLEAN,
                     UNIQUE (symbol, direction, temporary )
                 );
             """)
             conn.commit()
 
 
-# Note: This assumes only one open position per (symbol, direction).
+# Note: This assumes only one open position per (symbol, direction, temporary).
 # Temporary false signal state is inserted with position_id = None and cleaned separately.
 
 
@@ -39,6 +39,11 @@ def get_or_create_symbol_direction_state(symbol, direction, temporary, position_
     with get_db_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if position_id:
+                cur.execute("""
+                    UPDATE position_state
+                    SET position_id = %s
+                    WHERE symbol = %s AND direction = %s AND position_id IS NULL and temporary is false 
+                """, (position_id, symbol, direction))
                 cur.execute(f"""
                                 SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id = %s
                 """, (symbol, direction, position_id))
@@ -96,19 +101,11 @@ def update_position_state(symbol, direction, position_id, temporary, updated_fie
     with get_db_conn() as conn:
         with conn.cursor() as cur:
             if position_id is not None:
-                # First try updating NULL entry
-                cur.execute("""
-                    UPDATE position_state
-                    SET position_id = %s
-                    WHERE symbol = %s AND direction = %s AND position_id IS NULL and temporary is false 
-                """, (position_id, symbol, direction))
-                if cur.rowcount > 0:
-                    logger.info(f"[DB] Promoted NULL position_id to {position_id} for {symbol} {direction}")
-                cur.execute(f"""
-                        INSERT INTO position_state (symbol, direction, temporary, {', '.join(columns)})
-                        VALUES (%s, %s, %s, {placeholders})
+               cur.execute(f"""
+                        INSERT INTO position_state (symbol, direction, temporary, position_id,  {', '.join(columns)})
+                        VALUES (%s, %s, %s, %s, {placeholders})
                         ON CONFLICT (symbol, direction, temporary ) DO UPDATE SET {set_clause}
-                """, [symbol, direction, temporary] + values)
+                """, [symbol, direction, temporary, position_id] + values)
             if position_id is None:
                 # First try updating NULL entry
                 cur.execute("""
