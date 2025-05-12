@@ -107,7 +107,7 @@ async def handle_ws_message(message):
             position_event = pos_event.get("event")
             new_qty = float(pos_event.get("qty", 0))
             position_id = str(pos_event.get("positionId"))
-            state = get_or_create_symbol_direction_state(symbol, direction, position_id=position_id)
+            state = get_or_create_symbol_direction_state(symbol, direction)
             logger.info(f"State inside position: {state}")
             # Weighted average entry price update
             old_qty = state.get("total_qty", 0)

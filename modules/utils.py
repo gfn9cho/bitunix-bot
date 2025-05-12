@@ -313,14 +313,16 @@ def cancel_all_new_orders(symbol):
             "timestamp": cancel_ts,
             "Content-Type": "application/json"
         }
-
-        cancel_response = requests.post(
-            f"{BASE_URL}/api/v1/futures/trade/cancel_orders",
-            headers=cancel_headers,
-            data=cancel_body
-        )
-        cancel_response.raise_for_status()
-        logger.info(f"[ORDER CANCEL SUCCESS] {symbol}: {new_orders}")
+        try:
+            cancel_response = requests.post(
+                f"{BASE_URL}/api/v1/futures/trade/cancel_orders",
+                headers=cancel_headers,
+                data=cancel_body
+            )
+            cancel_response.raise_for_status()
+            logger.info(f"[ORDER CANCEL SUCCESS] {symbol}: {new_orders} {cancel_response.json()}")
+        except Exception as e:
+            logger.info(f"[ORDER CANCEL FAILED] {symbol}: {new_orders}: {e}")
 
     except Exception as e:
         logger.error(f"[CANCEL ORDERS FAILED] {symbol}: {str(e)}")
