@@ -56,21 +56,20 @@ def webhook_handler(symbol):
         state["step"] = 0
         state["qty_distribution"] = [0.7, 0.1, 0.1, 0.1]
         state["stop_loss"] = parsed["stop_loss"]
-        update_position_state(symbol, direction, None, state)
-        logger.info(f"[State]:{state}")
+
 
         entry = parsed["entry_price"]
         zone_start, zone_bottom = parsed["accumulation_zone"]
         logger.info(f"[ACC ZONES]: {zone_start}: {zone_bottom}")
         zone_middle = (zone_start + zone_bottom) / 2
-        tp1 = parsed["take_profits"][0]
-        sl = parsed["stop_loss"]
+        # tp1 = parsed["take_profits"][0]
+        # sl = parsed["stop_loss"]
 
         signal_time = datetime.utcnow()
 
         async def process_trade():
             market_qty = override_qty if override_qty else 10
-            logger.info(f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}, tp={tp1}, sl={sl}")
+            logger.info(f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}")
             retries = 3
             for attempt in range(retries):
                 response = place_order(
@@ -82,6 +81,9 @@ def webhook_handler(symbol):
                     private=True
                 )
                 if response and response.get("code", -1) == 0:
+                    state["temporary"] = False
+                    update_position_state(symbol, direction, None, state)
+                    logger.info(f"[State]:{state}")
                     logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
                     break
                 error_logger.error(f"[ORDER FAILURE] Attempt {attempt + 1}/{retries} - symbol={symbol}, direction={direction}, response={response}")

@@ -80,7 +80,7 @@ def update_position_state(symbol, direction, position_id, updated_fields: dict):
         return
     # Remove symbol and direction if mistakenly included
     # Only include fields that are explicitly updated to avoid overwriting with defaults
-    columns = [col for col in updated_fields.keys() if updated_fields[col] is not None and col not in ("symbol", "direction", "position_id")]
+    columns = [col for col in updated_fields.keys() if col not in ("symbol", "direction", "position_id")]
     values = [updated_fields[col] for col in columns]
     if not columns:
         logger.warning(f"[DB] No valid fields to update for {symbol} {direction} {position_id}")
@@ -92,6 +92,16 @@ def update_position_state(symbol, direction, position_id, updated_fields: dict):
 
     with get_db_conn() as conn:
         with conn.cursor() as cur:
+            if position_id is not None:
+                # First try updating NULL entry
+                cur.execute("""
+                    UPDATE position_state
+                    SET position_id = %s
+                    WHERE symbol = %s AND direction = %s AND position_id IS NULL and temporary is FALSE 
+                """, (symbol, direction, position_id))
+                if cur.rowcount > 0:
+                    logger.info(f"[DB] Promoted NULL position_id to {position_id} for {symbol} {direction}")
+
             cur.execute(f"""
                 INSERT INTO position_state (symbol, direction, position_id, {', '.join(columns)})
                 VALUES (%s, %s, %s, {placeholders})
