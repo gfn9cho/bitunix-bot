@@ -23,7 +23,7 @@ def ensure_table():
                     stop_loss FLOAT,
                     qty_distribution FLOAT[],
                     temporary BOOLEAN,
-                    PRIMARY KEY (symbol, direction, position_id)
+                    UNIQUE (symbol, direction, position_id)
                 );
             """)
             conn.commit()
@@ -37,12 +37,12 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
     with get_db_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if position_id:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id = %s
                 """, (symbol, direction, position_id))
                 row = cur.fetchone()
             else:
-                cur.execute("""
+                cur.execute(f"""
                                     SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id IS NULL
                                 """, (symbol, direction))
                 row = cur.fetchone()
@@ -68,8 +68,12 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
                     DEFAULT_STATE["temporary"]
                 ))
                 conn.commit()
-                return DEFAULT_STATE.copy()
-
+                # Fetch and return the inserted row
+                cur.execute("""
+                    SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id = %s
+                """, (symbol, direction, position_id))
+                row = cur.fetchone()
+                return dict(row)
 
 def update_position_state(symbol, direction, position_id, updated_fields: dict):
     if not updated_fields:
