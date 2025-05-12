@@ -102,14 +102,14 @@ def update_position_state(symbol, direction, position_id, updated_fields: dict):
                 cur.execute(f"""
                         INSERT INTO position_state (symbol, direction, position_id,  {', '.join(columns)})
                         VALUES (%s, %s, %s, {placeholders})
-                        ON CONFLICT (symbol, direction ) DO UPDATE SET {set_clause}
+                        ON CONFLICT (symbol, direction, position_id ) DO UPDATE SET {set_clause}
                 """, [symbol, direction, position_id] + values)
             if position_id is None:
                 cur.execute(f"""
                         INSERT INTO position_state (symbol, direction, position_id, {', '.join(columns)})
                         VALUES (%s, %s %s, {placeholders})
                         ON CONFLICT (symbol, direction, position_id ) DO UPDATE SET {set_clause}
-                    """, [symbol, direction] + values)
+                    """, [symbol, direction, position_id] + values)
 
             conn.commit()
 
