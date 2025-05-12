@@ -79,8 +79,12 @@ def update_position_state(symbol, direction, position_id, updated_fields: dict):
     if not updated_fields:
         return
     # Remove symbol and direction if mistakenly included
-    columns = [col for col in updated_fields.keys() if col not in ("symbol", "direction", "position_id")]
+    # Only include fields that are explicitly updated to avoid overwriting with defaults
+    columns = [col for col in updated_fields.keys() if updated_fields[col] is not None and col not in ("symbol", "direction", "position_id")]
     values = [updated_fields[col] for col in columns]
+    if not columns:
+        logger.warning(f"[DB] No valid fields to update for {symbol} {direction} {position_id}")
+        return
     placeholders = ", ".join(["%s"] * len(values))
     set_clause = ", ".join([f"{col} = EXCLUDED.{col}" for col in columns])
 
