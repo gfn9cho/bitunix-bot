@@ -137,7 +137,7 @@ async def handle_ws_message(message):
                 logger.info("In here 2")
                 x = state.get("tps")
                 logger.info(f"In Here 3:{x}")
-                if state.get("step", 0) == 0 and state.get("tps") and not state.get("tp_sl_placed", False):
+                if state.get("step", 0) == 0 and state.get("tps"):
                     tp1 = state["tps"][0]
                     logger.info(f"tp1:{tp1}")
                     sl_price = state["stop_loss"]
@@ -145,6 +145,8 @@ async def handle_ws_message(message):
                     full_qty = round(new_qty, 3)
                     if tp_qty > 0 and position_id:
                         if position_event != "OPEN" and new_qty > old_qty:
+                            logger.info(
+                                f"[TP/SL SET] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
                             # modify_tp_sl_order(symbol, tp1, sl_price, position_id, tp_qty, full_qty)
                             place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
                                               tp_qty=tp_qty, qty=full_qty)
@@ -154,8 +156,8 @@ async def handle_ws_message(message):
                             logger.info(
                                 f"[TP/SL SET] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
                 logger.info(f"In Here 4: {state}")
-                state["tp_sl_placed"] = True
                 update_position_state(symbol, direction, position_id, state)
+                logger.info(f"[TP/SL PLACED]")
 
             if position_event == "UPDATE" and new_qty < old_qty:
                 step = state.get("step", 0)
@@ -164,7 +166,8 @@ async def handle_ws_message(message):
                 total_qty = state.get("total_qty", 0)
                 profit_amount = float(pos_event.get("realizedPNL"))
 
-                log_profit_loss(symbol, direction, str(position_id), round(profit_amount, 4), "PROFIT" if profit_amount > 0 else "LOSS",
+                log_profit_loss(symbol, direction, str(position_id), round(profit_amount, 4),
+                                "PROFIT" if profit_amount > 0 else "LOSS",
                                 ctime, log_date)
 
                 logger.info(
@@ -188,9 +191,11 @@ async def handle_ws_message(message):
                         logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
 
                 if new_tp:
+                    logger.info(f"[POSITION_NEW_TP]: {symbol} {new_tp} {new_sl} {position_id} {tp_qty} {new_qty}")
                     place_tp_sl_order(symbol=symbol, tp_price=new_tp, sl_price=new_sl, position_id=position_id,
                                       tp_qty=tp_qty, qty=new_qty)
                 else:
+                    logger.info(f"[POSITION_NO_TP]: {symbol} {new_tp} {new_sl} {position_id} {tp_qty} {new_qty}")
                     place_tp_sl_order(symbol=symbol, tp_price=None, sl_price=new_sl, position_id=position_id,
                                       tp_qty=None, qty=new_qty)
 
@@ -205,10 +210,15 @@ async def handle_ws_message(message):
                 realized_pnl = float(pos_event.get("realizedPNL"))
                 position_id = state.get("position_id")
                 try:
-                    log_profit_loss(symbol, direction, str(position_id), round(realized_pnl, 4), "PROFIT" if realized_pnl > 0 else "LOSS",
+                    cancel_all_new_orders(symbol)
+                except Exception as cancel_err:
+                    logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
+                try:
+                    log_profit_loss(symbol, direction, str(position_id), round(realized_pnl, 4),
+                                    "PROFIT" if realized_pnl > 0 else "LOSS",
                                     ctime, log_date)
                 except Exception as log_pnl_error:
-                    logger.info(f"[CLOSE POSITION UPDATE PNL]: {log_pnl_error}")
+                    logger.info(f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}")
 
     except Exception as e:
         logger.error(f"WebSocket message handler error: {str(e)}")
