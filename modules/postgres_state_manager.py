@@ -44,7 +44,7 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
             else:
                 cur.execute("""
                                     SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id IS NULL
-                                """, (symbol, direction, position_id))
+                                """, (symbol, direction))
                 row = cur.fetchone()
 
             if row:
