@@ -70,8 +70,8 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=None):
                 conn.commit()
                 # Fetch and return the inserted row
                 cur.execute("""
-                    SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id = %s
-                """, (symbol, direction, position_id))
+                    SELECT * FROM position_state WHERE symbol = %s AND direction = %s AND position_id IS NULL
+                """, (symbol, direction))
                 row = cur.fetchone()
                 return dict(row)
 
