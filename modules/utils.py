@@ -10,7 +10,7 @@ import secrets
 from datetime import datetime
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
-from redis_client import r
+from modules.redis_client import r
 import time
 
 
