@@ -41,7 +41,8 @@ def get_or_create_symbol_direction_state(symbol, direction, position_id=''):
             # Try to fetch an OPEN position
             cur.execute("""
                 SELECT * FROM position_state
-                WHERE symbol = %s AND direction = %s AND status = 'OPEN'
+                WHERE symbol = %s AND direction = %s AND 
+                ((status = 'OPEN' AND position_id != '') OR (status = 'PENDING' AND position_id = ''))
             """, (symbol, direction))
             row = cur.fetchone()
 
