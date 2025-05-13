@@ -323,8 +323,14 @@ def calculate_quantities(prices, direction):
     return [round(m / p, 6) for m, p in zip(multipliers, prices)]
 
 
-def cancel_all_new_orders(symbol):
+def cancel_all_new_orders(symbol, direction):
     try:
+        # Map direction to Bitunix side string
+        side_map = {"BUY": "LONG", "SELL": "SHORT"}
+        bitunix_side = side_map.get(direction.upper())
+        if not bitunix_side:
+            logger.error(f"[CANCEL ORDERS] Invalid direction: {direction}")
+            return
         # Step 1: Prepare authentication and GET headers (query param-based request)
         method = "get"
         data = {"symbol": symbol}
@@ -353,7 +359,13 @@ def cancel_all_new_orders(symbol):
         logger.info(f"Pending Orders: {response}")
 
         orders = response.json().get("data", {}).get("orderList", [])
-        new_orders = [{"orderId": o["orderId"]} for o in orders if re.match(r'NEW?', o.get("status"))]
+        # Filter by status and side
+        new_orders = [
+            {"orderId": o["orderId"]}
+            for o in orders
+            if (o.get("status", "").startswith("NEW") or o.get("status", "").startswith("PART")) and
+               o.get("side") == bitunix_side
+        ]
         logger.info(f"[ORDERS FOR CANCEL]: {new_orders}")
 
         if not new_orders:

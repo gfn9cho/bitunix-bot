@@ -186,7 +186,7 @@ async def handle_ws_message(message):
 
                 if step == 0:
                     try:
-                        cancel_all_new_orders(symbol)
+                        cancel_all_new_orders(symbol, direction)
                     except Exception as cancel_err:
                         logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
 
@@ -210,7 +210,7 @@ async def handle_ws_message(message):
                 realized_pnl = float(pos_event.get("realizedPNL"))
                 position_id = state.get("position_id")
                 try:
-                    cancel_all_new_orders(symbol)
+                    cancel_all_new_orders(symbol, direction)
                 except Exception as cancel_err:
                     logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
                 try:
