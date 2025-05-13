@@ -125,8 +125,7 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
     # create message and timestamp
     timestamp = str(int(time.time() * 1000))
 
-    data = {"symbol": symbol,
-            "positionId": position_id}
+    data = {"symbol": symbol}
     method = "get"
     sign = generate_get_sign_api(nonce, timestamp, method, data)
     headers = {
@@ -140,47 +139,56 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
     # response = requests.post(url, headers=headers, json=data)
     response = requests.request(method, url, headers=headers, params=data, timeout=10)
     orders = response.json().get("data", {})
-
+    logger.info(f"[PENDING TP/SL ORDERS]: {response.json()}")
     if not orders:
         logger.warning(f"[MODIFY TP/SL] No pending TP/SL orders found for {symbol} position {position_id}")
         return
-    pending_orders_length = len(orders)
 
-    for o in orders:
-        if o["tpPrice"] is None and o["positionId"] == position_id:
-            if pending_orders_length == 1:
-                sl_orders = {"data": {
+    sl_orders = None
+    tp_orders = None
+
+    matched_orders = [o for o in orders if o["positionId"] == position_id]
+    pending_orders_length = len(matched_orders)
+
+    for o in matched_orders:
+        if o["tpPrice"] is None:
+            # This is SL
+            sl_orders = {
+                "data": {
                     "symbol": symbol,
                     "orderId": o["id"],
                     "slPrice": str(sl_price),
                     "slStopType": "MARK_PRICE",
                     "slOrderType": "MARKET",
-                    "slQty": str(sl_qty)}}
-                tp_orders = {"data": {
+                    "slQty": str(sl_qty),
+                }
+            }
+
+            if pending_orders_length == 1:
+                # Only SL is pending, TP got hit — so set up new TP
+                tp_orders = {
+                    "data": {
+                        "symbol": symbol,
+                        "orderId": o["id"],  # Same orderId reused for TP
+                        "tpPrice": str(tp_price),
+                        "tpStopType": "MARK_PRICE",
+                        "tpOrderType": "MARKET",
+                        "tpQty": str(tp_qty),
+                    }
+                }
+
+        else:
+            # TP order already exists
+            tp_orders = {
+                "data": {
                     "symbol": symbol,
                     "orderId": o["id"],
                     "tpPrice": str(tp_price),
                     "tpStopType": "MARK_PRICE",
                     "tpOrderType": "MARKET",
-                    "tpQty": str(tp_qty)
-                }}
-            else:
-                sl_orders = {"data": {
-                    "symbol": symbol,
-                    "orderId": o["id"],
-                    "slPrice": str(sl_price),
-                    "slStopType": "MARK_PRICE",
-                    "slOrderType": "MARKET",
-                    "slQty": str(sl_qty)}}
-        elif o["positionId"] == position_id:
-            tp_orders = {"data": {
-                "symbol": symbol,
-                "orderId": o["id"],
-                "tpPrice": str(tp_price),
-                "tpStopType": "MARK_PRICE",
-                "tpOrderType": "MARKET",
-                "tpQty": str(tp_qty)
-            }}
+                    "tpQty": str(tp_qty),
+                }
+            }
     logger.info(f"[MODIFY ORDER] {sl_orders} {tp_orders}")
     for o in [tp_orders, sl_orders]:
         submit_modified_tp_sl_order(o["data"])
