@@ -146,7 +146,7 @@ async def handle_ws_message(message):
                             modify_tp_sl_order(symbol, tp1, sl_price, position_id, tp_qty, full_qty)
                             # place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
                             #                 tp_qty=tp_qty, qty=full_qty)
-                        elif pos_event == "OPEN":
+                        elif position_event == "OPEN":
                             place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
                                               tp_qty=tp_qty, qty=full_qty)
                             logger.info(
