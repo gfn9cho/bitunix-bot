@@ -333,6 +333,7 @@ def is_duplicate_signal(symbol, direction, buffer_secs=5):
     # Atomic set-if-not-exists with expiration
     was_set = r.set(key, current_ts, nx=True, ex=buffer_secs)
     if not was_set:
+        logger.info(f"[DUPLICATE SIGNAL CONFIRMED]")
         return True  # already locked
     return False
 
