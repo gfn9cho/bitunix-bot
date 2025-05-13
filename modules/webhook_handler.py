@@ -3,11 +3,12 @@ from datetime import datetime
 from modules.utils import parse_signal, place_order
 from modules.logger_config import logger, error_logger
 from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
-from modules.loss_tracking import  is_daily_loss_limit_exceeded
+from modules.loss_tracking import is_daily_loss_limit_exceeded
 from modules.price_feed import validate_and_process_signal
 import time
 import asyncio
 import threading
+
 
 def webhook_handler(symbol):
     raw_data = request.get_data(as_text=True)
@@ -51,50 +52,67 @@ def webhook_handler(symbol):
         entry = parsed["entry_price"]
 
         async def process_trade():
-            # Temporary pre-position state (position_id will be set later by websocket)
+            # Create a new pending position or get a open position if exists.
             state = get_or_create_symbol_direction_state(symbol, direction)
-            state["tps"] = parsed["take_profits"]
-            state["entry_price"] = parsed["entry_price"]
-            state["step"] = 0
-            state["qty_distribution"] = [0.7, 0.1, 0.1, 0.1]
-            state["stop_loss"] = parsed["stop_loss"]
+            position_status = state.get("status")
+            position_step = state.get("step")
+            position_sl = state.get("stop_loss")
+            new_signal_sl = parsed["stop_loss"]
+            sl_threshold = new_signal_sl <= position_sl if direction == "BUY" else new_signal_sl >= position_sl
+            if (position_step == 0 and position_status == "OPEN" and sl_threshold) \
+                    or position_status == "PENDING":
 
-            zone_start, zone_bottom = parsed["accumulation_zone"]
-            logger.info(f"[ACC ZONES]: {zone_start}: {zone_bottom}")
-            zone_middle = (zone_start + zone_bottom) / 2
-            # tp1 = parsed["take_profits"][0]
-            # sl = parsed["stop_loss"]
+                state["tps"] = parsed["take_profits"]
+                state["entry_price"] = parsed["entry_price"]
+                state["step"] = 0
+                state["qty_distribution"] = [0.7, 0.1, 0.1, 0.1]
+                state["stop_loss"] = new_signal_sl
 
-            market_qty = override_qty if override_qty else 10
-            logger.info(f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}")
-            retries = 3
-            for attempt in range(retries):
-                response = place_order(
-                    symbol=symbol,
-                    side=direction,
-                    price=entry,
-                    qty=market_qty,
-                    order_type="MARKET",
-                    private=True
-                )
-                if response and response.get("code", -1) == 0:
-                    update_position_state(symbol, direction, '', state)
-                    after_update_state = get_or_create_symbol_direction_state(symbol, direction)
-                    logger.info(f"[State]:{after_update_state}")
-                    logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
-                    break
-                error_logger.error(f"[ORDER FAILURE] Attempt {attempt + 1}/{retries} - symbol={symbol}, direction={direction}, response={response}")
-                time.sleep(1)
+                zone_start, zone_bottom = parsed["accumulation_zone"]
+                logger.info(f"[ACC ZONES]: {zone_start}: {zone_bottom}")
+                zone_middle = (zone_start + zone_bottom) / 2
+                # tp1 = parsed["take_profits"][0]
+                # sl = parsed["stop_loss"]
 
-            logger.info(f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, price={zone_start}, qty={override_qty or 10}")
-            place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT")
+                market_qty = override_qty if override_qty else 10
+                logger.info(
+                    f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}")
+                retries = 3
+                for attempt in range(retries):
+                    response = place_order(
+                        symbol=symbol,
+                        side=direction,
+                        price=entry,
+                        qty=market_qty,
+                        order_type="MARKET",
+                        private=True
+                    )
+                    if response and response.get("code", -1) == 0:
+                        update_position_state(symbol, direction, '', state)
+                        # Comment the below step later
+                        after_update_state = get_or_create_symbol_direction_state(symbol, direction)
+                        logger.info(f"[State]:{after_update_state}")
+                        logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
+                        break
+                    error_logger.error(
+                        f"[ORDER FAILURE] Attempt {attempt + 1}/{retries} - symbol={symbol}, direction={direction}, response={response}")
+                    time.sleep(1)
 
-            logger.info(f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, price={zone_middle}, qty={override_qty or 10}")
-            place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10, order_type="LIMIT")
+                logger.info(
+                    f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, price={zone_start}, qty={override_qty or 10}")
+                place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT")
 
-            bottom_qty = (override_qty * 2 if override_qty else 20)
-            logger.info(f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, price={zone_bottom}, qty={bottom_qty}")
-            place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
+                logger.info(
+                    f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, price={zone_middle}, qty={override_qty or 10}")
+                place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10,
+                            order_type="LIMIT")
+
+                bottom_qty = (override_qty * 2 if override_qty else 20)
+                logger.info(
+                    f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, price={zone_bottom}, qty={bottom_qty}")
+                place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
+            else:
+                logger.info(f"[TRADE SKIP]: As the existing position is open and in TP stage")
 
         async def wrapped_process():
             await validate_and_process_signal(

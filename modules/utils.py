@@ -364,7 +364,7 @@ def cancel_all_new_orders(symbol, direction):
             {"orderId": o["orderId"]}
             for o in orders
             if (o.get("status", "").startswith("NEW") or o.get("status", "").startswith("PART")) and
-               o.get("side") == bitunix_side
+               (o.get("side") == bitunix_side or o.get("side") == direction.upper())
         ]
         logger.info(f"[ORDERS FOR CANCEL]: {new_orders}")
 

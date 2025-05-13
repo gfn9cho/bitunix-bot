@@ -111,7 +111,7 @@ async def handle_ws_message(message):
             logger.info(f"State inside position: {state}")
             # Weighted average entry price update
             old_qty = state.get("total_qty", 0)
-            logger.info("In Here 1")
+            logger.info(f"[WEBSOCKET_HANDLER]: position_event: {position_event} new_qty: {new_qty} old_qty: {old_qty}")
             # Extract and normalize time info
             ctime_str = pos_event.get("ctime")
             tps = state.get("tps", [])
@@ -121,22 +121,18 @@ async def handle_ws_message(message):
                 ctime = datetime.utcnow()
             log_date = ctime.strftime("%Y-%m-%d")
             if position_event == "OPEN" or (position_event == "UPDATE" and new_qty > old_qty):
-                current_position_id = state.get("position_id")
-                position_id = current_position_id if current_position_id is not None else pos_event.get("positionId")
-                logger.info(f"positionId: {position_id}")
+                position_id = pos_event.get("positionId")
                 position_margin = float(pos_event.get("margin"))
-                logger.info(f"position_margion: {position_margin}")
+                position_leverage = float(pos_event.get("levarage"))
                 # position_rpnl = float(pos_event.get("realizedPNL"))
                 position_fee = float(pos_event.get("fee"))
-                logger.info(f"position_fee: {position_fee}")
                 state["position_id"] = position_id
-                avg_entry = ((position_margin * LEVERAGE) + position_fee) / new_qty
-                logger.info(f"avg_entry: {avg_entry}")
+                # Have to adjust and get it from order position or make a call to order.
+                avg_entry = ((position_margin * position_leverage) + position_fee) / new_qty
                 state["entry_price"] = round(avg_entry, 6)
                 state["total_qty"] = round(new_qty, 3)
-                logger.info("In here 2")
-                x = state.get("tps")
-                logger.info(f"In Here 3:{x}")
+                state["status"] = "OPEN"
+                logger.info(f"[WEBSOCKET_HANDLER]: position_event: {position_event} avg_entry: {avg_entry} old_qty: {old_qty}")
                 if state.get("step", 0) == 0 and state.get("tps"):
                     tp1 = state["tps"][0]
                     logger.info(f"tp1:{tp1}")
@@ -146,24 +142,20 @@ async def handle_ws_message(message):
                     if tp_qty > 0 and position_id:
                         if position_event != "OPEN" and new_qty > old_qty:
                             logger.info(
-                                f"[TP/SL SET] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
+                                f"[TP/SL MODIFIED FOR UPDATE/ADDED QTY] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
                             modify_tp_sl_order(symbol, tp1, sl_price, position_id, tp_qty, full_qty)
                             # place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
                             #                 tp_qty=tp_qty, qty=full_qty)
-                        else:
+                        elif pos_event == "OPEN":
                             place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
                                               tp_qty=tp_qty, qty=full_qty)
                             logger.info(
-                                f"[TP/SL SET] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
-                logger.info(f"In Here 4: {state}")
+                                f"[TP/SL SET FOR OPEN ORDER] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
                 update_position_state(symbol, direction, position_id, state)
-                logger.info(f"[TP/SL PLACED]")
 
             if position_event == "UPDATE" and new_qty < old_qty:
                 step = state.get("step", 0)
-                current_position_id = state.get("position_id")
-                position_id = current_position_id if current_position_id is not None else pos_event.get("positionId")
-                total_qty = state.get("total_qty", 0)
+                position_id = pos_event.get("positionId")
                 profit_amount = float(pos_event.get("realizedPNL"))
 
                 log_profit_loss(symbol, direction, str(position_id), round(profit_amount, 4),
@@ -191,7 +183,7 @@ async def handle_ws_message(message):
                         logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
 
                 if new_tp:
-                    logger.info(f"[POSITION_NEW_TP]: {symbol} {new_tp} {new_sl} {position_id} {tp_qty} {new_qty}")
+                    logger.info(f"[POSITION_NEW_TP]: {step} {symbol} {new_tp} {new_sl} {position_id} {tp_qty} {new_qty}")
                     modify_tp_sl_order(symbol=symbol, tp_price=new_tp, sl_price=new_sl, position_id=position_id,
                                        tp_qty=tp_qty, sl_qty=new_qty)
                 else:
@@ -211,6 +203,9 @@ async def handle_ws_message(message):
                 position_id = state.get("position_id")
                 try:
                     cancel_all_new_orders(symbol, direction)
+                    update_position_state(symbol, direction, position_id, {
+                        "status": "CLOSED"
+                    })
                 except Exception as cancel_err:
                     logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
                 try:
