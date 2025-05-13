@@ -142,16 +142,34 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
     if not orders:
         logger.warning(f"[MODIFY TP/SL] No pending TP/SL orders found for {symbol} position {position_id}")
     return
+    pending_orders_length = len(orders)
 
     for o in orders:
         if o["tpPrice"] is None and o["positionId"] == position_id:
-            sl_orders = {"data": {
-                "symbol": symbol,
-                "orderId": o["id"],
-                "slPrice": str(sl_price),
-                "slStopType": "MARK_PRICE",
-                "slOrderType": "MARKET",
-                "slQty": str(sl_qty)}}
+            if pending_orders_length == 1:
+                sl_orders = {"data": {
+                    "symbol": symbol,
+                    "orderId": o["id"],
+                    "slPrice": str(sl_price),
+                    "slStopType": "MARK_PRICE",
+                    "slOrderType": "MARKET",
+                    "slQty": str(sl_qty)}}
+                tp_orders = {"data": {
+                    "symbol": symbol,
+                    "orderId": o["id"],
+                    "tpPrice": str(tp_price),
+                    "tpStopType": "MARK_PRICE",
+                    "tpOrderType": "MARKET",
+                    "tpQty": str(tp_qty)
+                }}
+            else:
+                sl_orders = {"data": {
+                    "symbol": symbol,
+                    "orderId": o["id"],
+                    "slPrice": str(sl_price),
+                    "slStopType": "MARK_PRICE",
+                    "slOrderType": "MARKET",
+                    "slQty": str(sl_qty)}}
         elif o["positionId"] == position_id:
             tp_orders = {"data": {
                 "symbol": symbol,
