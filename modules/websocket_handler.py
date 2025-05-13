@@ -123,7 +123,7 @@ async def handle_ws_message(message):
             if position_event == "OPEN" or (position_event == "UPDATE" and new_qty > old_qty):
                 position_id = pos_event.get("positionId")
                 position_margin = float(pos_event.get("margin"))
-                position_leverage = float(pos_event.get("levarage"))
+                position_leverage = float(pos_event.get("leverage", 20))
                 # position_rpnl = float(pos_event.get("realizedPNL"))
                 position_fee = float(pos_event.get("fee"))
                 state["position_id"] = position_id
