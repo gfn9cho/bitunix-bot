@@ -1,6 +1,8 @@
-certifi==2025.4.26
-charset-normalizer==3.4.2
-idna==3.10
-requests==2.32.3
-urllib3==2.2.3
-redis==6.1.0
+flask
+requests
+websocket-client
+gunicorn
+websockets
+redis
+urllib3
+psycopg2-binary
