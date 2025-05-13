@@ -327,6 +327,7 @@ def calculate_quantities(prices, direction):
 
 def is_duplicate_signal(symbol, direction, buffer_secs=5):
     key = f"signal_lock:{symbol}:{direction}"
+    logger.info(f"[DUPLICATE SIGNAL]: {key}")
     current_ts = int(time.time())
 
     # Atomic set-if-not-exists with expiration
