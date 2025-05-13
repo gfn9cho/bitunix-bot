@@ -56,6 +56,7 @@ def webhook_handler(symbol):
             if is_duplicate_signal(symbol, direction):
                 logger.warning(f"[DUPLICATE] Signal skipped for {symbol}-{direction}")
                 return
+            logger.info(f"[PROCESS TRADE]: CREATE STATE - {symbol} {direction} {entry}")
             state = get_or_create_symbol_direction_state(symbol, direction)
             position_status = state.get("status")
             position_step = state.get("step")
