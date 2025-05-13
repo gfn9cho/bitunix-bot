@@ -141,7 +141,7 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
 
     if not orders:
         logger.warning(f"[MODIFY TP/SL] No pending TP/SL orders found for {symbol} position {position_id}")
-    return
+        return
     pending_orders_length = len(orders)
 
     for o in orders:
@@ -356,7 +356,7 @@ def cancel_all_new_orders(symbol, direction):
             params=data
         )
         response.raise_for_status()
-        logger.info(f"Pending Orders: {response}")
+        logger.info(f"Pending Orders: {response.json()}")
 
         orders = response.json().get("data", {}).get("orderList", [])
         # Filter by status and side
