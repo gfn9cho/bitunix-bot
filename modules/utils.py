@@ -115,7 +115,7 @@ def submit_modified_tp_sl_order(order_data):
 
 
 def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
-    url = "https://fapi.bitunix.com/api/v1//futures/tpsl/get_pending_orders"
+    url = f"{BASE_URL}/api/v1/futures/tpsl/get_pending_orders"
     # url = "https://fapi.bitunix.com/api/v1/futures/trade/get_pending_orders"
     random_bytes = secrets.token_bytes(32)
     nonce = base64.b64encode(random_bytes).decode('utf-8')
@@ -138,6 +138,11 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
     # response = requests.post(url, headers=headers, json=data)
     response = requests.request(method, url, headers=headers, params=data, timeout=10)
     orders = response.json().get("data", {})
+
+    if not orders:
+        logger.warning(f"[MODIFY TP/SL] No pending TP/SL orders found for {symbol} position {position_id}")
+    return
+
     for o in orders:
         if o["tpPrice"] is None and o["positionId"] == position_id:
             sl_orders = {"data": {
@@ -156,6 +161,7 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
                 "tpOrderType": "MARKET",
                 "tpQty": str(tp_qty)
             }}
+    logger.info(f"[MODIFY ORDER] {sl_orders} {tp_orders}")
     for o in [tp_orders, sl_orders]:
         submit_modified_tp_sl_order(o["data"])
 
