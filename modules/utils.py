@@ -10,6 +10,8 @@ import secrets
 from datetime import datetime
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
+from redis_client import r
+import time
 
 
 # LOSS_LOG_FILE = "daily_loss_log.json"
@@ -321,6 +323,18 @@ def calculate_zone_entries(acc_zone):
 def calculate_quantities(prices, direction):
     multipliers = [10, 10, 20]  # $ amounts
     return [round(m / p, 6) for m, p in zip(multipliers, prices)]
+
+
+def is_duplicate_signal(symbol, direction, buffer_secs=5):
+    key = f"signal_lock:{symbol}:{direction}"
+    current_ts = int(time.time())
+
+    # Atomic set-if-not-exists with expiration
+    was_set = r.set(key, current_ts, nx=True, ex=buffer_secs)
+    if not was_set:
+        return True  # already locked
+    return False
+
 
 
 def cancel_all_new_orders(symbol, direction):

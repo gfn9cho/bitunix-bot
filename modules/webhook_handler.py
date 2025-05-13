@@ -1,6 +1,6 @@
 from flask import request, jsonify
 from datetime import datetime
-from modules.utils import parse_signal, place_order
+from modules.utils import parse_signal, place_order, is_duplicate_signal
 from modules.logger_config import logger, error_logger
 from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.loss_tracking import is_daily_loss_limit_exceeded
@@ -53,6 +53,9 @@ def webhook_handler(symbol):
 
         async def process_trade():
             # Create a new pending position or get a open position if exists.
+            if is_duplicate_signal(symbol, direction):
+                logger.warning(f"[DUPLICATE] Signal skipped for {symbol}-{direction}")
+                return
             state = get_or_create_symbol_direction_state(symbol, direction)
             position_status = state.get("status")
             position_step = state.get("step")
