@@ -32,7 +32,7 @@ def get_latest_close_price(symbol: str, interval: str) -> float:
     url = f"{BITUNIX_BASE_URL}/api/v1/futures/market/kline"
     params = {
         "symbol": symbol.upper(),
-        "interval": interval.upper(),  # Bitunix uses '1M', '3M', etc.
+        "interval": interval.lower(),  # Bitunix uses '1M', '3M', etc.
         "limit": 1
     }
     try:
