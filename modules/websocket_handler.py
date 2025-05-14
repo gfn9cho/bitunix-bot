@@ -60,7 +60,7 @@ async def listen_and_process(ws_url):
         }
         await websocket.send(json.dumps(login_request))
         await websocket.recv()
-        asyncio.create_task(send_heartbeat(websocket))
+        heartbeat_task = asyncio.create_task(send_heartbeat(websocket))
 
         subscribe_request = {
             "op": "subscribe",
@@ -79,6 +79,11 @@ async def listen_and_process(ws_url):
                 await handle_ws_message(message)
             except websockets.exceptions.ConnectionClosedError as e:
                 logger.warning(f"[WS] Connection closed unexpectedly: {e}")
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    logger.info("[WS] Heartbeat task cancelled cleanly")
                 raise
             except Exception as e:
                 logger.error(f"[WS MESSAGE ERROR] {e}")
