@@ -2,7 +2,7 @@ import os
 import json
 import re
 import time
-import hmac
+import httpx
 import hashlib
 import requests
 import base64
@@ -11,55 +11,14 @@ from datetime import datetime
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
 from modules.redis_client import r
+from modules.order_safety import safe_submit_sl_update, safe_submit_tp_update
+from modules.postgres_state_manager import update_position_state, get_or_create_symbol_direction_state
 import time
 
-
-# LOSS_LOG_FILE = "daily_loss_log.json"
 
 def get_today():
     return datetime.utcnow().strftime("%Y-%m-%d")
 
-
-# def read_loss_log():
-#     if not os.path.exists(LOSS_LOG_FILE):
-#         return {}
-#     try:
-#         with open(LOSS_LOG_FILE, 'r') as f:
-#             return json.load(f)
-#     except json.JSONDecodeError:
-#         return {}
-
-# def write_loss_log(log):
-#     with open(LOSS_LOG_FILE, 'w') as f:
-#         json.dump(log, f)
-
-# def update_loss(amount):
-#     log = read_loss_log()
-#     today = get_today()
-#     if today not in log:
-#         log[today] = {"profit": 0, "loss": 0}
-#     log[today]["loss"] += amount
-#     write_loss_log(log)
-
-# def update_profit(amount):
-#     log = read_loss_log()
-#     today = get_today()
-#     if today not in log:
-#         log[today] = {"profit": 0, "loss": 0}
-#     log[today]["profit"] += amount
-#     write_loss_log(log)
-
-# def get_today_loss():
-#     log = read_loss_log()
-#     today = get_today()
-#     return log.get(today, {}).get("loss", 0)
-#
-# def get_today_net_loss():
-#     log = read_loss_log()
-#     today = get_today()
-#     profit = log.get(today, {}).get("profit", 0)
-#     loss = log.get(today, {}).get("loss", 0)
-#     return max(loss - profit, 0)
 
 def generate_get_sign_api(nonce, timestamp, method, data):
     query_params = ""
@@ -85,7 +44,7 @@ def generate_get_sign_api(nonce, timestamp, method, data):
     return sign
 
 
-def submit_modified_tp_sl_order(order_data):
+async def submit_modified_tp_sl_order_async(order_data):
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
@@ -104,30 +63,37 @@ def submit_modified_tp_sl_order(order_data):
     }
 
     try:
-        response = requests.post(f"{BASE_URL}/api/v1/futures/tpsl/modify_order", headers=headers, data=body_json)
-        response.raise_for_status()
-        logger.info(f"[TP/SL MODIFY SUCCESS] {str(body_json)}")
-        logger.info(f"[TP/SL MODIFY SUCCESS] {response.json()}")
-        return response.json()
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(f"{BASE_URL}/api/v1/futures/tpsl/modify_order", headers=headers, content=body_json)
+            response.raise_for_status()
+            logger.info(f"[TP/SL MODIFY SUCCESS] {body_json}")
+            logger.info(f"[TP/SL MODIFY SUCCESS] {response.json()}")
+            return response.json()
+
+    except httpx.RequestError as e:
         logger.error(f"[TP/SL MODIFY FAILED] {e}")
         if e.response is not None:
             logger.error(f"[TP/SL MODIFY FAILED] Response: {e.response.text}")
         return None
 
 
-def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
+def is_valid_sl_price(direction, sl_price, mark_price):
+    if direction == "BUY":
+        return sl_price > mark_price
+    else:  # SELL
+        return sl_price < mark_price
+
+
+async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
     url = f"{BASE_URL}/api/v1/futures/tpsl/get_pending_orders"
-    # url = "https://fapi.bitunix.com/api/v1/futures/trade/get_pending_orders"
     random_bytes = secrets.token_bytes(32)
     nonce = base64.b64encode(random_bytes).decode('utf-8')
-
-    # create message and timestamp
     timestamp = str(int(time.time() * 1000))
 
     data = {"symbol": symbol}
     method = "get"
     sign = generate_get_sign_api(nonce, timestamp, method, data)
+
     headers = {
         "api-key": API_KEY,
         "nonce": nonce,
@@ -136,40 +102,54 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
         "language": "en-US",
         "Content-Type": "application/json"
     }
-    # response = requests.post(url, headers=headers, json=data)
-    response = requests.request(method, url, headers=headers, params=data, timeout=10)
-    orders = response.json().get("data", {})
-    logger.info(f"[PENDING TP/SL ORDERS]: {response.json()}")
-    if not orders:
-        logger.warning(f"[MODIFY TP/SL] No pending TP/SL orders found for {symbol} position {position_id}")
-        return
 
-    sl_orders = None
-    tp_orders = None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.request(method, url, headers=headers, params=data)
+            response.raise_for_status()
+            response_data = response.json()
 
-    matched_orders = [o for o in orders if o["positionId"] == position_id]
-    pending_orders_length = len(matched_orders)
+        orders = response_data.get("data", {})
+        logger.info(f"[PENDING TP/SL ORDERS]: {response_data}")
 
-    for o in matched_orders:
-        if o["tpPrice"] is None:
-            # This is SL
-            sl_orders = {
-                "data": {
-                    "symbol": symbol,
-                    "orderId": o["id"],
-                    "slPrice": str(sl_price),
-                    "slStopType": "MARK_PRICE",
-                    "slOrderType": "MARKET",
-                    "slQty": str(sl_qty),
+        if not orders:
+            logger.warning(f"[MODIFY TP/SL] No pending TP/SL orders found for {symbol} position {position_id}")
+            return
+
+        sl_orders = None
+        tp_orders = None
+
+        matched_orders = [o for o in orders if o["positionId"] == position_id]
+        pending_orders_length = len(matched_orders)
+
+        for o in matched_orders:
+            if o["tpPrice"] is None:
+                sl_orders = {
+                    "data": {
+                        "symbol": symbol,
+                        "orderId": o["id"],
+                        "slPrice": str(sl_price),
+                        "slStopType": "MARK_PRICE",
+                        "slOrderType": "MARKET",
+                        "slQty": str(sl_qty),
+                    }
                 }
-            }
-
-            if pending_orders_length == 1:
-                # Only SL is pending, TP got hit — so set up new TP
+                if pending_orders_length == 1:
+                    tp_orders = {
+                        "data": {
+                            "symbol": symbol,
+                            "orderId": o["id"],
+                            "tpPrice": str(tp_price),
+                            "tpStopType": "MARK_PRICE",
+                            "tpOrderType": "MARKET",
+                            "tpQty": str(tp_qty),
+                        }
+                    }
+            else:
                 tp_orders = {
                     "data": {
                         "symbol": symbol,
-                        "orderId": o["id"],  # Same orderId reused for TP
+                        "orderId": o["id"],
                         "tpPrice": str(tp_price),
                         "tpStopType": "MARK_PRICE",
                         "tpOrderType": "MARKET",
@@ -177,24 +157,23 @@ def modify_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
                     }
                 }
 
-        else:
-            # TP order already exists
-            tp_orders = {
-                "data": {
-                    "symbol": symbol,
-                    "orderId": o["id"],
-                    "tpPrice": str(tp_price),
-                    "tpStopType": "MARK_PRICE",
-                    "tpOrderType": "MARKET",
-                    "tpQty": str(tp_qty),
-                }
-            }
-    logger.info(f"[MODIFY ORDER] {sl_orders} {tp_orders}")
-    for o in [tp_orders, sl_orders]:
-        submit_modified_tp_sl_order(o["data"])
+        logger.info(f"[MODIFY ORDER] {sl_orders} {tp_orders}")
+
+        if tp_orders:
+            success = await safe_submit_tp_update(symbol, direction, tp_orders["data"], tp_orders["data"]["tpPrice"])
+            if not success:
+                logger.warning(f"[TP WARNING] TP update failed for {symbol} {direction}")
+
+        if sl_orders:
+            success = await safe_submit_sl_update(symbol, direction, sl_orders["data"], sl_orders["data"]["slPrice"])
+            if not success:
+                logger.warning(f"[SL WARNING] SL update failed for {symbol} {direction}")
+
+    except Exception as e:
+        logger.error(f"[MODIFY TP/SL ERROR] Failed for {symbol} {direction}: {e}")
 
 
-def place_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, qty):
+async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qty, qty):
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
@@ -226,19 +205,49 @@ def place_tp_sl_order(symbol, tp_price, sl_price, position_id, tp_qty, qty):
     }
 
     try:
-        response = requests.post(f"{BASE_URL}/api/v1/futures/tpsl/place_order", headers=headers, data=body_json)
-        response.raise_for_status()
-        logger.info(f"[TP/SL ORDER SUCCESS] {response.json()}")
-        return response.json()
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(f"{BASE_URL}/api/v1/futures/tpsl/place_order", headers=headers, content=body_json)
+            response.raise_for_status()
+            logger.info(f"[TP/SL ORDER SUCCESS] {response.json()}")
+            return response.json()
+    except httpx.RequestError as e:
         logger.error(f"[TP/SL ORDER FAILED] {e}")
         if e.response is not None:
             logger.error(f"[TP/SL ORDER FAILED] Response: {e.response.text}")
         return None
 
 
-def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True,
-                reduce_only=False):
+async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float):
+    """
+    If an opposite position is open, closes it and opens a new one with doubled quantity.
+    """
+    opposite_direction = "SELL" if new_direction == "BUY" else "BUY"
+    existing_state = get_or_create_symbol_direction_state(symbol, opposite_direction)
+
+    if not existing_state or existing_state.get("status") != "OPEN":
+        logger.info(f"[REVERSE CHECK] No open {opposite_direction} position for {symbol}. Proceeding normally.")
+        return new_qty  # no reversal needed
+
+    logger.info(f"[REVERSAL DETECTED] Closing {opposite_direction} position on {symbol} to open {new_direction}")
+
+    try:
+        opposite_position_id = existing_state.get("position_id")
+        # Optional: cancel any remaining limit/TP/SL orders
+        await cancel_all_new_orders(symbol, opposite_direction, context="reversal")
+
+        # Update old state as CLOSED
+        update_position_state(symbol, opposite_direction, opposite_position_id, {"status": "CLOSED"})
+
+        # Return doubled quantity to use for new entry
+        return round(existing_state["total_qty"] + new_qty, 3)
+
+    except Exception as e:
+        logger.error(f"[REVERSAL ERROR] Failed to close and flip position for {symbol}: {e}")
+        return new_qty
+
+
+async def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True,
+                      reduce_only=False):
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
@@ -284,16 +293,18 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=No
     logger.info(f"[ORDER DATA] {order_data}")
 
     try:
-        response = requests.post(f"{BASE_URL}/api/v1/futures/trade/place_order", headers=headers, data=body_json)
-        response.raise_for_status()
-        logger.info(f"[ORDER SUCCESS] {response.json()}")
-        return response.json()
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(f"{BASE_URL}/api/v1/futures/trade/place_order",
+                                         headers=headers,
+                                         content=body_json)
+            response.raise_for_status()
+            logger.info(f"[ORDER SUCCESS] {response.json()}")
+            return response.json()
+    except httpx.RequestError as e:
         logger.error(f"[ORDER FAILED] {e}")
         if e.response is not None:
             logger.error(f"[ORDER FAILED] Response: {e.response.text}")
         return None
-
 
 def parse_signal(message):
     lines = message.split('\n')
@@ -349,8 +360,7 @@ def is_duplicate_signal(symbol, direction, buffer_secs=5):
     return False
 
 
-
-def cancel_all_new_orders(symbol, direction):
+async def cancel_all_new_orders(symbol, direction, context="tp"):
     try:
         # Map direction to Bitunix side string
         side_map = {"BUY": "LONG", "SELL": "SHORT"}
@@ -358,11 +368,11 @@ def cancel_all_new_orders(symbol, direction):
         if not bitunix_side:
             logger.error(f"[CANCEL ORDERS] Invalid direction: {direction}")
             return
-        # Step 1: Prepare authentication and GET headers (query param-based request)
+
+        # Step 1: Prepare authentication and GET headers
         method = "get"
         data = {"symbol": symbol}
-        random_bytes = secrets.token_bytes(32)
-        nonce = base64.b64encode(random_bytes).decode('utf-8')
+        nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
         timestamp = str(int(time.time() * 1000))
         signature = generate_get_sign_api(nonce, timestamp, method, data)
 
@@ -374,35 +384,38 @@ def cancel_all_new_orders(symbol, direction):
             "language": "en-US",
             "Content-Type": "application/json"
         }
-        logger.info(f"Pending Orders: {headers}")
 
-        # Step 2: GET pending orders
-        response = requests.get(
-            f"{BASE_URL}/api/v1/futures/trade/get_pending_orders",
-            headers=headers,
-            params=data
-        )
-        response.raise_for_status()
-        logger.info(f"Pending Orders: {response.json()}")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{BASE_URL}/api/v1/futures/trade/get_pending_orders",
+                headers=headers,
+                params=data
+            )
+            response.raise_for_status()
+            orders = response.json().get("data", {}).get("orderList", [])
 
-        orders = response.json().get("data", {}).get("orderList", [])
-        # Filter by status and side
-        new_orders = [
-            {"orderId": o["orderId"]}
-            for o in orders
-            if (o.get("status", "").startswith("NEW") or o.get("status", "").startswith("PART")) and
-               (o.get("side") == bitunix_side or o.get("side") == direction.upper())
-        ]
-        logger.info(f"[ORDERS FOR CANCEL]: {new_orders}")
+        # Filter orders based on context
+        if context == "reversal":
+            cancel_list = [
+                {"orderId": o["orderId"]}
+                for o in orders
+                if o.get("side") in {bitunix_side, direction.upper()}
+            ]
+        else:
+            cancel_list = [
+                {"orderId": o["orderId"]}
+                for o in orders
+                if (o.get("status", "").startswith("NEW") or o.get("status", "").startswith("PART")) and
+                   (o.get("side") in {bitunix_side, direction.upper()})
+            ]
 
-        if not new_orders:
-            logger.info(f"No NEW orders found for {symbol}")
+        if not cancel_list:
+            logger.info(f"[CANCEL ORDERS] No orders to cancel for {symbol} ({context})")
             return
 
-        # Step 3: Cancel the orders
         cancel_payload = {
             "symbol": symbol,
-            "orderList": new_orders
+            "orderList": cancel_list
         }
 
         cancel_nonce = base64.b64encode(secrets.token_bytes(32)).decode()
@@ -418,16 +431,15 @@ def cancel_all_new_orders(symbol, direction):
             "timestamp": cancel_ts,
             "Content-Type": "application/json"
         }
-        try:
-            cancel_response = requests.post(
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            cancel_response = await client.post(
                 f"{BASE_URL}/api/v1/futures/trade/cancel_orders",
                 headers=cancel_headers,
-                data=cancel_body
+                content=cancel_body
             )
             cancel_response.raise_for_status()
-            logger.info(f"[ORDER CANCEL SUCCESS] {symbol}: {new_orders} {cancel_response.json()}")
-        except Exception as e:
-            logger.info(f"[ORDER CANCEL FAILED] {symbol}: {new_orders}: {e}")
+            logger.info(f"[ORDER CANCEL SUCCESS] {symbol}: {cancel_list} {cancel_response.json()}")
 
     except Exception as e:
-        logger.error(f"[CANCEL ORDERS FAILED] {symbol}: {str(e)}")
+        logger.error(f"[CANCEL ORDERS FAILED] {symbol}: {e}")

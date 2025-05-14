@@ -1,6 +1,6 @@
 from flask import request, jsonify
 from datetime import datetime
-from modules.utils import parse_signal, place_order, is_duplicate_signal
+from modules.utils import parse_signal, place_order, is_duplicate_signal, maybe_reverse_position
 from modules.logger_config import logger, error_logger
 from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.loss_tracking import is_daily_loss_limit_exceeded
@@ -83,16 +83,19 @@ def webhook_handler(symbol):
                     f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, price={entry}, qty={market_qty}")
                 retries = 3
                 for attempt in range(retries):
-                    response = place_order(
+                    market_qty_revised = await maybe_reverse_position(symbol, direction, market_qty)
+                    logger.info(f"[TEST TRACE] Reverse? {state}, Revised Qty: {market_qty_revised}")
+                    response = await place_order(
                         symbol=symbol,
                         side=direction,
                         price=entry,
-                        qty=market_qty,
+                        qty=market_qty_revised,
                         order_type="MARKET",
                         private=True
                     )
                     if response and response.get("code", -1) == 0:
                         update_position_state(symbol, direction, '', state)
+                        logger.info(f"[TEST TRACE] ORDER RESPONSE: {response}")
                         logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
                         break
                     error_logger.error(
@@ -101,17 +104,17 @@ def webhook_handler(symbol):
 
                 logger.info(
                     f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, price={zone_start}, qty={override_qty or 10}")
-                place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT")
+                await place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10, order_type="LIMIT")
 
                 logger.info(
                     f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, price={zone_middle}, qty={override_qty or 10}")
-                place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10,
+                await place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10,
                             order_type="LIMIT")
 
                 bottom_qty = (override_qty * 2 if override_qty else 20)
                 logger.info(
                     f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, price={zone_bottom}, qty={bottom_qty}")
-                place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
+                await place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
             else:
                 logger.info(f"[TRADE SKIP]: As the existing position is open and in TP stage")
 

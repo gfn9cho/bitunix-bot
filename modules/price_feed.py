@@ -4,8 +4,28 @@ import asyncio
 from modules.logger_config import logger
 from modules.loss_tracking import log_false_signal
 from modules.postgres_state_manager import delete_position_state
+import httpx
 
 BITUNIX_BASE_URL = "https://fapi.bitunix.com"
+
+
+async def get_latest_mark_price(symbol: str) -> float:
+    url = f"{BITUNIX_BASE_URL}/api/v1/futures/market/ticker"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            tickers = response.json().get("data", [])
+
+            for ticker in tickers:
+                if ticker["symbol"].upper() == symbol.upper():
+                    return float(ticker["markPrice"])
+
+            raise ValueError(f"Symbol {symbol} not found in ticker list.")
+
+    except Exception as e:
+        logger.error(f"[MARK PRICE ERROR] Failed to fetch mark price for {symbol}: {e}")
+        return None
 
 
 def get_latest_close_price(symbol: str, interval: str) -> float:

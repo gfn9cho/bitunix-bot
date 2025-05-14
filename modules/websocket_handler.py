@@ -10,7 +10,7 @@ from modules.logger_config import logger
 # from modules.state import position_state, save_position_state, get_or_create_symbol_direction_state
 from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state, \
     delete_position_state
-from modules.utils import place_tp_sl_order, cancel_all_new_orders, modify_tp_sl_order
+from modules.utils import place_tp_sl_order_async, cancel_all_new_orders, modify_tp_sl_order_async
 from modules.loss_tracking import log_profit_loss
 from datetime import datetime
 
@@ -132,7 +132,8 @@ async def handle_ws_message(message):
                 state["entry_price"] = round(avg_entry, 6)
                 state["total_qty"] = round(new_qty, 3)
                 state["status"] = "OPEN"
-                logger.info(f"[WEBSOCKET_HANDLER]: position_event: {position_event} avg_entry: {avg_entry} old_qty: {old_qty}")
+                logger.info(
+                    f"[WEBSOCKET_HANDLER]: position_event: {position_event} avg_entry: {avg_entry} old_qty: {old_qty}")
                 if state.get("step", 0) == 0 and state.get("tps"):
                     tp1 = state["tps"][0]
                     logger.info(f"tp1:{tp1}")
@@ -143,12 +144,14 @@ async def handle_ws_message(message):
                         if position_event != "OPEN" and new_qty > old_qty:
                             logger.info(
                                 f"[TP/SL MODIFIED FOR UPDATE/ADDED QTY] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
-                            modify_tp_sl_order(symbol, tp1, sl_price, position_id, tp_qty, full_qty)
+                            await modify_tp_sl_order_async(direction, symbol, tp1, sl_price, position_id, tp_qty,
+                                                           full_qty)
                             # place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
                             #                 tp_qty=tp_qty, qty=full_qty)
                         elif position_event == "OPEN":
-                            place_tp_sl_order(symbol=symbol, tp_price=tp1, sl_price=sl_price, position_id=position_id,
-                                              tp_qty=tp_qty, qty=full_qty)
+                            await place_tp_sl_order_async(symbol=symbol, tp_price=tp1, sl_price=sl_price,
+                                                          position_id=position_id,
+                                                          tp_qty=tp_qty, qty=full_qty)
                             logger.info(
                                 f"[TP/SL SET FOR OPEN ORDER] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
                 update_position_state(symbol, direction, position_id, state)
@@ -161,7 +164,6 @@ async def handle_ws_message(message):
                 log_profit_loss(symbol, direction, str(position_id), round(profit_amount, 4),
                                 "PROFIT" if profit_amount > 0 else "LOSS",
                                 ctime, log_date)
-
                 logger.info(
                     f"[P&L LOGGED] {'Profit' if profit_amount > 0 else 'Loss'} of {abs(profit_amount):.4f} logged for {symbol} {direction} at TP{step + 1}")
 
@@ -178,18 +180,21 @@ async def handle_ws_message(message):
 
                 if step == 0:
                     try:
-                        cancel_all_new_orders(symbol, direction)
+                        await cancel_all_new_orders(symbol, direction)
                     except Exception as cancel_err:
                         logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
 
                 if new_tp:
-                    logger.info(f"[POSITION_NEW_TP]: {step} {symbol} {new_tp} {new_sl} {position_id} {tp_qty} {new_qty}")
-                    modify_tp_sl_order(symbol=symbol, tp_price=new_tp, sl_price=new_sl, position_id=position_id,
-                                       tp_qty=tp_qty, sl_qty=new_qty)
+                    logger.info(
+                        f"[POSITION_NEW_TP]: {step} {symbol} {new_tp} {new_sl} {position_id} {tp_qty} {new_qty}")
+                    await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=new_tp, sl_price=new_sl,
+                                                   position_id=position_id,
+                                                   tp_qty=tp_qty, sl_qty=new_qty)
                 else:
                     logger.info(f"[POSITION_NO_TP]: {symbol} {new_tp} {new_sl} {position_id} {tp_qty} {new_qty}")
-                    modify_tp_sl_order(symbol=symbol, tp_price=None, sl_price=new_sl, position_id=position_id,
-                                       tp_qty=None, sl_qty=new_qty)
+                    await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=None, sl_price=new_sl,
+                                                   position_id=position_id,
+                                                   tp_qty=None, sl_qty=new_qty)
 
                 state["step"] = next_step
                 # state["total_qty"] = round(new_qty - tp_qty, 3)
@@ -202,7 +207,7 @@ async def handle_ws_message(message):
                 realized_pnl = float(pos_event.get("realizedPNL"))
                 position_id = state.get("position_id")
                 try:
-                    cancel_all_new_orders(symbol, direction)
+                    await cancel_all_new_orders(symbol, direction)
                     update_position_state(symbol, direction, position_id, {
                         "status": "CLOSED"
                     })
