@@ -290,8 +290,8 @@ async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float
         return new_qty
 
 
-def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True,
-                reduce_only=False):
+async def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True,
+                      reduce_only=False):
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
@@ -337,13 +337,18 @@ def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=No
     logger.info(f"[ORDER DATA] {order_data}")
 
     try:
-        response = requests.post(f"{BASE_URL}/api/v1/futures/trade/place_order", headers=headers, data=body_json)
-        response.raise_for_status()
-        logger.info(f"[ORDER SUCCESS] {response.json()}")
-        return response.json()
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{BASE_URL}/api/v1/futures/trade/place_order",
+                headers=headers,
+                content=body_json
+            )
+            response.raise_for_status()
+            logger.info(f"[ORDER SUCCESS] {response.json()}")
+            return response.json()
+    except httpx.RequestError as e:
         logger.error(f"[ORDER FAILED] {e}")
-        if e.response is not None:
+        if hasattr(e, "response") and e.response is not None:
             logger.error(f"[ORDER FAILED] Response: {e.response.text}")
         return None
 

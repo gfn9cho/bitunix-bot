@@ -95,8 +95,8 @@ def webhook_handler(symbol):
                     )
                     if response and response.get("code", -1) == 0:
                         update_position_state(symbol, direction, '', state)
-                        logger.info(f"[TEST TRACE] ORDER RESPONSE: {response}")
                         logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
+                        logger.info(f"[TEST TRACE] ORDER RESPONSE: {response}")
                         break
                     error_logger.error(
                         f"[ORDER FAILURE] Attempt {attempt + 1}/{retries} - symbol={symbol}, direction={direction}, response={response}")
