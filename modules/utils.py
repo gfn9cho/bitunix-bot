@@ -1,19 +1,10 @@
-import os
-import json
-import re
-import time
-import httpx
-import hashlib
-import requests
-import base64
-import secrets
 from datetime import datetime
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
 from modules.redis_client import r
-from modules.order_safety import safe_submit_sl_update, safe_submit_tp_update
 from modules.postgres_state_manager import update_position_state, get_or_create_symbol_direction_state
-import time
+import asyncio, httpx, secrets, time, base64, requests, hashlib, re, json
+from modules.price_feed import get_latest_mark_price
 
 
 def get_today():
@@ -43,6 +34,59 @@ def generate_get_sign_api(nonce, timestamp, method, data):
 
     return sign
 
+
+async def is_valid_sl_price(direction: str, sl_price: float, mark_price: float) -> bool:
+    return sl_price > mark_price if direction == "BUY" else sl_price < mark_price
+
+
+async def is_valid_tp_price(direction: str, tp_price: float, mark_price: float) -> bool:
+    return tp_price < mark_price if direction == "BUY" else tp_price > mark_price
+
+
+async def safe_submit_sl_update(symbol: str, direction: str, sl_payload: dict, sl_price: float, retries: int = 3, retry_delay: int = 2) -> bool:
+    for attempt in range(retries):
+        try:
+            mark_price = await get_latest_mark_price(symbol)
+            if not mark_price:
+                raise ValueError("Mark price unavailable")
+
+            if await is_valid_sl_price(direction, sl_price, mark_price):
+                logger.info(f"[SL ✅] Submitting SL {sl_price} (mark: {mark_price}) for {symbol} {direction}")
+                await submit_modified_tp_sl_order_async(sl_payload)
+                return True
+            else:
+                logger.warning(f"[SL ❌] SL {sl_price} invalid vs mark {mark_price} on {symbol}. Attempt {attempt+1}/{retries}")
+                await asyncio.sleep(retry_delay)
+
+        except Exception as e:
+            logger.error(f"[SL ERROR] Retry {attempt+1} for {symbol} {direction}: {e}")
+            await asyncio.sleep(retry_delay)
+
+    logger.error(f"[SL FAILED] Giving up SL update for {symbol} {direction} after {retries} retries.")
+    return False
+
+
+async def safe_submit_tp_update(symbol: str, direction: str, tp_payload: dict, tp_price: float, retries: int = 3, retry_delay: int = 2) -> bool:
+    for attempt in range(retries):
+        try:
+            mark_price = await get_latest_mark_price(symbol)
+            if not mark_price:
+                raise ValueError("Mark price unavailable")
+
+            if await is_valid_tp_price(direction, tp_price, mark_price):
+                logger.info(f"[TP ✅] Submitting TP {tp_price} (mark: {mark_price}) for {symbol} {direction}")
+                await submit_modified_tp_sl_order_async(tp_payload)
+                return True
+            else:
+                logger.warning(f"[TP ❌] TP {tp_price} invalid vs mark {mark_price} on {symbol}. Attempt {attempt+1}/{retries}")
+                await asyncio.sleep(retry_delay)
+
+        except Exception as e:
+            logger.error(f"[TP ERROR] Retry {attempt+1} for {symbol} {direction}: {e}")
+            await asyncio.sleep(retry_delay)
+
+    logger.error(f"[TP FAILED] Giving up TP update for {symbol} {direction} after {retries} retries.")
+    return False
 
 async def submit_modified_tp_sl_order_async(order_data):
     timestamp = str(int(time.time() * 1000))
@@ -246,8 +290,8 @@ async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float
         return new_qty
 
 
-async def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True,
-                      reduce_only=False):
+def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True,
+                reduce_only=False):
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
@@ -293,18 +337,16 @@ async def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20,
     logger.info(f"[ORDER DATA] {order_data}")
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(f"{BASE_URL}/api/v1/futures/trade/place_order",
-                                         headers=headers,
-                                         content=body_json)
-            response.raise_for_status()
-            logger.info(f"[ORDER SUCCESS] {response.json()}")
-            return response.json()
-    except httpx.RequestError as e:
+        response = requests.post(f"{BASE_URL}/api/v1/futures/trade/place_order", headers=headers, data=body_json)
+        response.raise_for_status()
+        logger.info(f"[ORDER SUCCESS] {response.json()}")
+        return response.json()
+    except requests.exceptions.RequestException as e:
         logger.error(f"[ORDER FAILED] {e}")
         if e.response is not None:
             logger.error(f"[ORDER FAILED] Response: {e.response.text}")
         return None
+
 
 def parse_signal(message):
     lines = message.split('\n')
