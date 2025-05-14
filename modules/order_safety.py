@@ -1,6 +1,6 @@
 import asyncio
 import httpx
-from price_feed import get_latest_mark_price
+from modules.price_feed import get_latest_mark_price
 from modules.logger_config import logger
 from modules.utils import submit_modified_tp_sl_order_async
 
