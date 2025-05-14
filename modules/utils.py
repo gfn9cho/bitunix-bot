@@ -40,18 +40,20 @@ def generate_get_sign_api(nonce, timestamp, method, data):
 
 
 async def is_valid_sl_price(direction: str, sl_price: float,
-                            mark_price: float, buffer_pct: float = 0.05) -> bool:
+                            mark_price: float, buffer_pct: float = 0.02) -> bool:
     if direction == "BUY":
-        return sl_price * (1 + buffer_pct) > mark_price
+        return sl_price < mark_price * (1 + buffer_pct)
     else:
-        return sl_price * (1 - buffer_pct) < mark_price
+        return sl_price > mark_price * (1 - buffer_pct)
 
 
-async def is_valid_tp_price(direction: str, tp_price: float, mark_price: float, buffer_pct: float = 0.05) -> bool:
+async def is_valid_tp_price(direction: str, tp_price: float,
+                            mark_price: float, buffer_pct: float = 0.02) -> bool:
     if direction == "BUY":
-        return tp_price * (1 - buffer_pct) < mark_price
+        return tp_price > mark_price * (1 + buffer_pct)
     else:
-        return tp_price * (1 + buffer_pct) > mark_price
+        return tp_price < mark_price * (1 - buffer_pct)
+
 
 
 async def safe_submit_sl_update(symbol: str, direction: str, sl_payload: dict, sl_price: float, retries: int = 3,

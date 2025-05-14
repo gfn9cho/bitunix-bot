@@ -162,52 +162,6 @@ async def handle_ws_message(message):
                                 f"[TP/SL SET FOR OPEN ORDER] {symbol} {direction} TP1 {tp1}, SL {sl_price}, qty {tp_qty}/{full_qty}, positionId {position_id}")
                 update_position_state(symbol, direction, position_id, state)
 
-            if position_event == "UPDATE" and new_qty < old_qty:
-                step = state.get("step", 0)
-                position_id = pos_event.get("positionId")
-                profit_amount = float(pos_event.get("realizedPNL"))
-
-                log_profit_loss(symbol, direction, str(position_id), round(profit_amount, 4),
-                                "PROFIT" if profit_amount > 0 else "LOSS",
-                                ctime, log_date)
-                logger.info(
-                    f"[P&L LOGGED] {'Profit' if profit_amount > 0 else 'Loss'} of {abs(profit_amount):.4f} logged for {symbol} {direction} at TP{step + 1}")
-
-                if not tps or step >= len(tps):
-                    logger.warning(f"No TP state for {symbol} {direction}. Skipping.")
-                    return
-
-                new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
-                next_step = step + 1
-                new_tp = tps[next_step] if next_step < len(tps) else None
-                tp_qty = round(old_qty * 0.1, 3)
-
-                logger.info(f"Step {step} hit for {symbol} {direction}. New SL: {new_sl}, Next TP: {new_tp}")
-
-                if step == 0:
-                    try:
-                        await cancel_all_new_orders(symbol, direction)
-                    except Exception as cancel_err:
-                        logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
-
-                if new_tp:
-                    logger.info(
-                        f"[POSITION_NEW_TP]: {step} {symbol} {new_tp} {new_sl} {position_id} {tp_qty} {new_qty}")
-                    await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=new_tp, sl_price=new_sl,
-                                                   position_id=position_id,
-                                                   tp_qty=tp_qty, sl_qty=new_qty)
-                else:
-                    logger.info(f"[POSITION_NO_TP]: {symbol} {new_tp} {new_sl} {position_id} {tp_qty} {new_qty}")
-                    await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=None, sl_price=new_sl,
-                                                   position_id=position_id,
-                                                   tp_qty=None, sl_qty=new_qty)
-
-                state["step"] = next_step
-                # state["total_qty"] = round(new_qty - tp_qty, 3)
-                logger.info(
-                    f"Step {step} hit for {symbol} {direction}. New SL: {new_sl}, Next TP: {new_tp} , tp_qty: {tp_qty}, sl_qty: {new_qty}")
-                update_position_state(symbol, direction, position_id, state)
-
             if position_event == "CLOSE" and new_qty == 0:
                 # delete_position_state(symbol, direction, position_id)
                 realized_pnl = float(pos_event.get("realizedPNL"))
@@ -225,6 +179,54 @@ async def handle_ws_message(message):
                                     ctime, log_date)
                 except Exception as log_pnl_error:
                     logger.info(f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}")
+
+        elif topic == "tp_sl":
+            try:
+                tp_data = data.get("data", {})
+                symbol = tp_data.get("symbol")
+                trigger_price = float(tp_data.get("triggerPrice"))
+                position_id = tp_data.get("positionId")
+                side = tp_data.get("side", "LONG").upper()
+                direction = "BUY" if side == "LONG" else "SELL"
+                trigger_type = tp_data.get("triggerType")
+                event = tp_data.get("event")
+
+                status = tp_data.get("status")
+                if event != "CLOSE" or status != "FILLED":
+                    logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {event} with status: {status}")
+                    return
+
+                state = get_or_create_symbol_direction_state(symbol, direction, position_id=position_id)
+                tps = state.get("tps", [])
+                step = state.get("step", 0)
+                old_qty = state.get("total_qty", 0)
+                tp_qty = round(old_qty * TP_DISTRIBUTION[step], 3)
+                new_qty = round(old_qty - tp_qty, 3)
+                next_step = step + 1
+
+                new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
+                new_tp = tps[next_step] if next_step < len(tps) else None
+
+                if step == 0:
+                    try:
+                        await cancel_all_new_orders(symbol, direction)
+                    except Exception as cancel_err:
+                        logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
+
+                if new_tp:
+                    logger.info(f"[TP_SL CHANNEL] STEP {step} → {next_step} | New TP: {new_tp} SL: {new_sl}")
+                    await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=new_tp, sl_price=new_sl,
+                                                   position_id=position_id, tp_qty=tp_qty, sl_qty=new_qty)
+                else:
+                    logger.info(f"[TP_SL CHANNEL] STEP {step} → {next_step} | Final SL Only: {new_sl}")
+                    await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=None, sl_price=new_sl,
+                                                   position_id=position_id, tp_qty=None, sl_qty=new_qty)
+
+                state["step"] = next_step
+                state["total_qty"] = new_qty
+                update_position_state(symbol, direction, position_id, state)
+            except Exception as e:
+                logger.error(f"[TP_SL CHANNEL ERROR] {e}")
 
     except Exception as e:
         logger.error(f"WebSocket message handler error: {str(e)}")
