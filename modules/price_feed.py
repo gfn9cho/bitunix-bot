@@ -1,10 +1,11 @@
-import requests
-import datetime
 import asyncio
+import datetime
+
+import httpx
+import requests
+
 from modules.logger_config import logger
 from modules.loss_tracking import log_false_signal
-from modules.postgres_state_manager import delete_position_state
-import httpx
 
 BITUNIX_BASE_URL = "https://fapi.bitunix.com"
 
@@ -12,20 +13,26 @@ BITUNIX_BASE_URL = "https://fapi.bitunix.com"
 async def get_latest_mark_price(symbol: str) -> float:
     url = f"{BITUNIX_BASE_URL}/api/v1/futures/market/ticker"
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            tickers = response.json().get("data", [])
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                tickers = response.json().get("data", [])
+        except httpx.RequestError as e:
+            logger.error(f"[ORDER FAILED] {e}")
+            if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+                logger.error(f"[ORDER FAILED] Response: {e.response.text}")
+            raise RuntimeError(f"Failed to fetch mark price for {symbol}: {e}")
 
-            for ticker in tickers:
-                if ticker["symbol"].upper() == symbol.upper():
-                    return float(ticker["markPrice"])
+        for ticker in tickers:
+            if ticker["symbol"].upper() == symbol.upper():
+                return float(ticker["markPrice"])
 
             raise ValueError(f"Symbol {symbol} not found in ticker list.")
 
     except Exception as e:
         logger.error(f"[MARK PRICE ERROR] Failed to fetch mark price for {symbol}: {e}")
-        return None
+        raise RuntimeError(f"Failed to fetch mark price for {symbol}: {e}")
 
 
 def get_latest_close_price(symbol: str, interval: str) -> float:
@@ -69,7 +76,8 @@ async def is_false_signal(symbol: str, entry_price: float, direction: str, inter
     return False
 
 
-async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str, signal_time: datetime.datetime, callback):
+async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str,
+                                      signal_time: datetime.datetime, callback):
     try:
         is_false = await is_false_signal(symbol, entry_price, direction, interval, signal_time)
         if is_false:

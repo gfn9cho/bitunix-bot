@@ -1,18 +1,19 @@
 import asyncio
-import websockets
 import hashlib
-import time
 import json
 import random
 import string
-from modules.config import API_KEY, API_SECRET, LEVERAGE
-from modules.logger_config import logger
-# from modules.state import position_state, save_position_state, get_or_create_symbol_direction_state
-from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state, \
-    delete_position_state
-from modules.utils import place_tp_sl_order_async, cancel_all_new_orders, modify_tp_sl_order_async
-from modules.loss_tracking import log_profit_loss
+import time
 from datetime import datetime
+
+import websockets
+
+from modules.config import API_KEY, API_SECRET
+from modules.logger_config import logger
+from modules.loss_tracking import log_profit_loss
+# from modules.state import position_state, save_position_state, get_or_create_symbol_direction_state
+from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
+from modules.utils import place_tp_sl_order_async, cancel_all_new_orders, modify_tp_sl_order_async
 
 # TP distribution: 70% for TP1, 10% each for TP2–TP4
 TP_DISTRIBUTION = [0.7, 0.1, 0.1, 0.1]

@@ -1,10 +1,18 @@
+import asyncio
+import base64
+import hashlib
+import httpx
+import json
+import re
+import secrets
+import time
 from datetime import datetime
+
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
-from modules.redis_client import r
 from modules.postgres_state_manager import update_position_state, get_or_create_symbol_direction_state
-import asyncio, httpx, secrets, time, base64, requests, hashlib, re, json
 from modules.price_feed import get_latest_mark_price
+from modules.redis_client import r
 
 
 def get_today():
@@ -24,26 +32,30 @@ def generate_get_sign_api(nonce, timestamp, method, data):
             body = str(data)
 
     digest_input = nonce + timestamp + API_KEY + query_params + body
-    # print(f"digest_input={digest_input}")
     digest = hashlib.sha256(digest_input.encode()).hexdigest()
-    # print(f"digest={digest}")
-
     sign_input = digest + API_SECRET
-    # print(f"sign_input={sign_input}")
     sign = hashlib.sha256(sign_input.encode()).hexdigest()
 
     return sign
 
 
-async def is_valid_sl_price(direction: str, sl_price: float, mark_price: float) -> bool:
-    return sl_price > mark_price if direction == "BUY" else sl_price < mark_price
+async def is_valid_sl_price(direction: str, sl_price: float,
+                            mark_price: float, buffer_pct: float = 0.05) -> bool:
+    if direction == "BUY":
+        return sl_price * (1 + buffer_pct) > mark_price
+    else:
+        return sl_price * (1 - buffer_pct) < mark_price
 
 
-async def is_valid_tp_price(direction: str, tp_price: float, mark_price: float) -> bool:
-    return tp_price < mark_price if direction == "BUY" else tp_price > mark_price
+async def is_valid_tp_price(direction: str, tp_price: float, mark_price: float, buffer_pct: float = 0.05) -> bool:
+    if direction == "BUY":
+        return tp_price * (1 - buffer_pct) < mark_price
+    else:
+        return tp_price * (1 + buffer_pct) > mark_price
 
 
-async def safe_submit_sl_update(symbol: str, direction: str, sl_payload: dict, sl_price: float, retries: int = 3, retry_delay: int = 2) -> bool:
+async def safe_submit_sl_update(symbol: str, direction: str, sl_payload: dict, sl_price: float, retries: int = 3,
+                                retry_delay: int = 2) -> bool:
     for attempt in range(retries):
         try:
             mark_price = await get_latest_mark_price(symbol)
@@ -55,18 +67,20 @@ async def safe_submit_sl_update(symbol: str, direction: str, sl_payload: dict, s
                 await submit_modified_tp_sl_order_async(sl_payload)
                 return True
             else:
-                logger.warning(f"[SL ❌] SL {sl_price} invalid vs mark {mark_price} on {symbol}. Attempt {attempt+1}/{retries}")
+                logger.warning(
+                    f"[SL ❌] SL {sl_price} invalid vs mark {mark_price} on {symbol}. Attempt {attempt + 1}/{retries}")
                 await asyncio.sleep(retry_delay)
 
         except Exception as e:
-            logger.error(f"[SL ERROR] Retry {attempt+1} for {symbol} {direction}: {e}")
+            logger.error(f"[SL ERROR] Retry {attempt + 1} for {symbol} {direction}: {e}")
             await asyncio.sleep(retry_delay)
 
     logger.error(f"[SL FAILED] Giving up SL update for {symbol} {direction} after {retries} retries.")
     return False
 
 
-async def safe_submit_tp_update(symbol: str, direction: str, tp_payload: dict, tp_price: float, retries: int = 3, retry_delay: int = 2) -> bool:
+async def safe_submit_tp_update(symbol: str, direction: str, tp_payload: dict, tp_price: float, retries: int = 3,
+                                retry_delay: int = 2) -> bool:
     for attempt in range(retries):
         try:
             mark_price = await get_latest_mark_price(symbol)
@@ -78,15 +92,17 @@ async def safe_submit_tp_update(symbol: str, direction: str, tp_payload: dict, t
                 await submit_modified_tp_sl_order_async(tp_payload)
                 return True
             else:
-                logger.warning(f"[TP ❌] TP {tp_price} invalid vs mark {mark_price} on {symbol}. Attempt {attempt+1}/{retries}")
+                logger.warning(
+                    f"[TP ❌] TP {tp_price} invalid vs mark {mark_price} on {symbol}. Attempt {attempt + 1}/{retries}")
                 await asyncio.sleep(retry_delay)
 
         except Exception as e:
-            logger.error(f"[TP ERROR] Retry {attempt+1} for {symbol} {direction}: {e}")
+            logger.error(f"[TP ERROR] Retry {attempt + 1} for {symbol} {direction}: {e}")
             await asyncio.sleep(retry_delay)
 
     logger.error(f"[TP FAILED] Giving up TP update for {symbol} {direction} after {retries} retries.")
     return False
+
 
 async def submit_modified_tp_sl_order_async(order_data):
     timestamp = str(int(time.time() * 1000))
@@ -108,24 +124,18 @@ async def submit_modified_tp_sl_order_async(order_data):
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(f"{BASE_URL}/api/v1/futures/tpsl/modify_order", headers=headers, content=body_json)
+            response = await client.post(f"{BASE_URL}/api/v1/futures/tpsl/modify_order", headers=headers,
+                                         content=body_json)
             response.raise_for_status()
             logger.info(f"[TP/SL MODIFY SUCCESS] {body_json}")
             logger.info(f"[TP/SL MODIFY SUCCESS] {response.json()}")
             return response.json()
 
     except httpx.RequestError as e:
-        logger.error(f"[TP/SL MODIFY FAILED] {e}")
-        if e.response is not None:
-            logger.error(f"[TP/SL MODIFY FAILED] Response: {e.response.text}")
+        logger.error(f"[TP/SL MODIFY SUCCESS] {e}")
+        if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+            logger.error(f"[TP/SL MODIFY SUCCESS] Response: {e.response.text}")
         return None
-
-
-def is_valid_sl_price(direction, sl_price, mark_price):
-    if direction == "BUY":
-        return sl_price > mark_price
-    else:  # SELL
-        return sl_price < mark_price
 
 
 async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
@@ -148,10 +158,16 @@ async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, positi
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.request(method, url, headers=headers, params=data)
-            response.raise_for_status()
-            response_data = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.request(method, url, headers=headers, params=data)
+                response.raise_for_status()
+                response_data = response.json()
+        except httpx.RequestError as e:
+            logger.error(f"[PENDING TP/SL ORDERS] {e}")
+            if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+                logger.error(f"[PENDING TP/SL ORDERS] Response: {e.response.text}")
+            return None
 
         orders = response_data.get("data", {})
         logger.info(f"[PENDING TP/SL ORDERS]: {response_data}")
@@ -204,12 +220,14 @@ async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, positi
         logger.info(f"[MODIFY ORDER] {sl_orders} {tp_orders}")
 
         if tp_orders:
-            success = await safe_submit_tp_update(symbol, direction, tp_orders["data"], tp_orders["data"]["tpPrice"])
+            success = await safe_submit_tp_update(symbol, direction, tp_orders["data"],
+                                                  float(tp_orders["data"]["tpPrice"]))
             if not success:
                 logger.warning(f"[TP WARNING] TP update failed for {symbol} {direction}")
 
         if sl_orders:
-            success = await safe_submit_sl_update(symbol, direction, sl_orders["data"], sl_orders["data"]["slPrice"])
+            success = await safe_submit_sl_update(symbol, direction, sl_orders["data"],
+                                                  float(sl_orders["data"]["slPrice"]))
             if not success:
                 logger.warning(f"[SL WARNING] SL update failed for {symbol} {direction}")
 
@@ -250,14 +268,15 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(f"{BASE_URL}/api/v1/futures/tpsl/place_order", headers=headers, content=body_json)
+            response = await client.post(f"{BASE_URL}/api/v1/futures/tpsl/place_order", headers=headers,
+                                         content=body_json)
             response.raise_for_status()
             logger.info(f"[TP/SL ORDER SUCCESS] {response.json()}")
             return response.json()
     except httpx.RequestError as e:
-        logger.error(f"[TP/SL ORDER FAILED] {e}")
-        if e.response is not None:
-            logger.error(f"[TP/SL ORDER FAILED] Response: {e.response.text}")
+        logger.error(f"[ORDER FAILED] {e}")
+        if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+            logger.error(f"[ORDER FAILED] Response: {e.response.text}")
         return None
 
 
@@ -348,7 +367,7 @@ async def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20,
             return response.json()
     except httpx.RequestError as e:
         logger.error(f"[ORDER FAILED] {e}")
-        if hasattr(e, "response") and e.response is not None:
+        if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
             logger.error(f"[ORDER FAILED] Response: {e.response.text}")
         return None
 
@@ -397,7 +416,6 @@ def is_duplicate_signal(symbol, direction, buffer_secs=5):
     current_ts = int(time.time())
     logger.info(f"[DUPLICATE SIGNAL]: {current_ts}")
 
-
     # Atomic set-if-not-exists with expiration
     was_set = r.set(key, current_ts, nx=True, ex=buffer_secs)
     logger.info(f"[DUPLICATE SIGNAL]: {was_set}")
@@ -431,15 +449,20 @@ async def cancel_all_new_orders(symbol, direction, context="tp"):
             "language": "en-US",
             "Content-Type": "application/json"
         }
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                f"{BASE_URL}/api/v1/futures/trade/get_pending_orders",
-                headers=headers,
-                params=data
-            )
-            response.raise_for_status()
-            orders = response.json().get("data", {}).get("orderList", [])
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{BASE_URL}/api/v1/futures/trade/get_pending_orders",
+                    headers=headers,
+                    params=data
+                )
+                response.raise_for_status()
+                orders = response.json().get("data", {}).get("orderList", [])
+        except httpx.RequestError as e:
+            logger.error(f"[PENDING ORDER CAPTURE FAILED] {e}")
+            if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+                logger.error(f"[PENDING ORDER CAPTURE FAILED] Response: {e.response.text}")
+            return None
 
         # Filter orders based on context
         if context == "reversal":
@@ -478,15 +501,20 @@ async def cancel_all_new_orders(symbol, direction, context="tp"):
             "timestamp": cancel_ts,
             "Content-Type": "application/json"
         }
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            cancel_response = await client.post(
-                f"{BASE_URL}/api/v1/futures/trade/cancel_orders",
-                headers=cancel_headers,
-                content=cancel_body
-            )
-            cancel_response.raise_for_status()
-            logger.info(f"[ORDER CANCEL SUCCESS] {symbol}: {cancel_list} {cancel_response.json()}")
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                cancel_response = await client.post(
+                    f"{BASE_URL}/api/v1/futures/trade/cancel_orders",
+                    headers=cancel_headers,
+                    content=cancel_body
+                )
+                cancel_response.raise_for_status()
+                logger.info(f"[ORDER CANCEL SUCCESS] {symbol}: {cancel_list} {cancel_response.json()}")
+        except httpx.RequestError as e:
+            logger.error(f"[ORDER CANCEL FAILED] {e}")
+            if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+                logger.error(f"[ORDER CANCEL FAILED] Response: {e.response.text}")
+            return None
 
     except Exception as e:
         logger.error(f"[CANCEL ORDERS FAILED] {symbol}: {e}")
