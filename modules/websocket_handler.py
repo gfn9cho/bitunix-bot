@@ -77,7 +77,7 @@ async def listen_and_process(ws_url):
         while True:
             try:
                 message = await websocket.recv()
-                logger.info(f"[WS MESSAGE] {message}")
+                # logger.info(f"[WS MESSAGE] {message}")
                 await handle_ws_message(message)
             except websockets.exceptions.ConnectionClosedError as e:
                 logger.warning(f"[WS] Connection closed unexpectedly: {e}")
