@@ -148,9 +148,9 @@ async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, positi
     nonce = base64.b64encode(random_bytes).decode('utf-8')
     timestamp = str(int(time.time() * 1000))
 
-    data = {"symbol": symbol}
+    params = {"symbol": symbol}
     method = "get"
-    sign = generate_get_sign_api(nonce, timestamp, method, data)
+    sign = generate_get_sign_api(nonce, timestamp, method, params)
 
     headers = {
         "api-key": API_KEY,
