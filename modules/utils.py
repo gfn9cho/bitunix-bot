@@ -143,14 +143,13 @@ async def submit_modified_tp_sl_order_async(order_data):
 async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
     # Fetch pending TP/SL orders
     url = f"{BASE_URL}/api/v1/futures/tpsl/get_pending_orders"
-
     random_bytes = secrets.token_bytes(32)
     nonce = base64.b64encode(random_bytes).decode('utf-8')
     timestamp = str(int(time.time() * 1000))
 
-    params = {"symbol": symbol}
+    data = {"symbol": symbol}
     method = "get"
-    sign = generate_get_sign_api(nonce, timestamp, method, params)
+    sign = generate_get_sign_api(nonce, timestamp, method, data)
 
     headers = {
         "api-key": API_KEY,
@@ -161,20 +160,23 @@ async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, positi
         "Content-Type": "application/json"
     }
 
-
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, headers=headers, params=params)
-            resp.raise_for_status()
-            logger.info(f"[MODIFY TP/SL ORDER]: {position_id} {resp.json()}")
-            orders = resp.json().get("data", [])
-    except Exception as e:
-        logger.error(f"[PENDING TP/SL FETCH FAILED] {e}")
-        return
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.request(method, url, headers=headers, params=data)
+            response.raise_for_status()
+            response_data = response.json()
+    except httpx.RequestError as e:
+        logger.error(f"[PENDING TP/SL ORDERS] {e}")
+        if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+            logger.error(f"[PENDING TP/SL ORDERS] Response: {e.response.text}")
+        return None
 
+    orders = response_data.get("data", {})
+    logger.info(f"[PENDING TP/SL ORDERS]: {response_data}")
     match = next((o for o in orders if o["positionId"] == position_id), None)
     if not match:
-        logger.warning(f"[MODIFY FALLBACK] No matching TP/SL order found for {symbol} {position_id}. Attempting cancel and re-place.")
+        logger.warning(
+            f"[MODIFY FALLBACK] No matching TP/SL order found for {symbol} {position_id}. Attempting cancel and re-place.")
         return
 
     order_id = match["id"]
