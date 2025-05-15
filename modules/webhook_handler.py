@@ -54,7 +54,7 @@ def webhook_handler(symbol):
 
         async def process_trade():
             # Create a new pending position or get a open position if exists.
-            if is_duplicate_signal(symbol, direction):
+            if await is_duplicate_signal(symbol, direction):
                 logger.warning(f"[DUPLICATE] Signal skipped for {symbol}-{direction}")
                 return
             logger.info(f"[PROCESS TRADE]: CREATE STATE - {symbol} {direction} {entry}")
