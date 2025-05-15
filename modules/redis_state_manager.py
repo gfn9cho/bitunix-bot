@@ -1,5 +1,5 @@
 import json
-from modules.redis_client import redis as r
+from modules.redis_client import r
 from modules.postgres_state_manager import get_or_create_symbol_direction_state as pg_get, \
     update_position_state as pg_update
 
