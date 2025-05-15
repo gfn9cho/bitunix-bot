@@ -143,21 +143,24 @@ async def submit_modified_tp_sl_order_async(order_data):
 async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
     # Fetch pending TP/SL orders
     url = f"{BASE_URL}/api/v1/futures/tpsl/get_pending_orders"
-    params = {"symbol": symbol}
-    method = "get"
 
-    nonce = base64.b64encode(hashlib.sha256(str(time.time()).encode()).digest()).decode()
+    random_bytes = secrets.token_bytes(32)
+    nonce = base64.b64encode(random_bytes).decode('utf-8')
     timestamp = str(int(time.time() * 1000))
-    sign = hashlib.sha256((nonce + timestamp + API_KEY).encode()).hexdigest()
-    final_sign = hashlib.sha256((sign + API_SECRET).encode()).hexdigest()
+
+    data = {"symbol": symbol}
+    method = "get"
+    sign = generate_get_sign_api(nonce, timestamp, method, data)
 
     headers = {
         "api-key": API_KEY,
         "nonce": nonce,
         "timestamp": timestamp,
-        "sign": final_sign,
+        "sign": sign,
+        "language": "en-US",
         "Content-Type": "application/json"
     }
+
 
     try:
         async with httpx.AsyncClient() as client:
@@ -172,9 +175,6 @@ async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, positi
     match = next((o for o in orders if o["positionId"] == position_id), None)
     if not match:
         logger.warning(f"[MODIFY FALLBACK] No matching TP/SL order found for {symbol} {position_id}. Attempting cancel and re-place.")
-        from modules.utils import cancel_all_new_orders, place_tp_sl_order_async
-        await cancel_all_new_orders(symbol, direction)
-        await place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty)
         return
 
     order_id = match["id"]
