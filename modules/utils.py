@@ -10,7 +10,8 @@ from datetime import datetime
 
 from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
-from modules.postgres_state_manager import update_position_state, get_or_create_symbol_direction_state
+# from modules.postgres_state_manager import update_position_state, get_or_create_symbol_direction_state
+from modules.redis_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.price_feed import get_latest_mark_price
 from modules.redis_client import r
 
@@ -287,7 +288,7 @@ async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float
     If an opposite position is open, closes it and opens a new one with doubled quantity.
     """
     opposite_direction = "SELL" if new_direction == "BUY" else "BUY"
-    existing_state = get_or_create_symbol_direction_state(symbol, opposite_direction)
+    existing_state = await get_or_create_symbol_direction_state(symbol, opposite_direction)
 
     if not existing_state or existing_state.get("status") != "OPEN":
         logger.info(f"[REVERSE CHECK] No open {opposite_direction} position for {symbol}. Proceeding normally.")
@@ -301,7 +302,7 @@ async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float
         await cancel_all_new_orders(symbol, opposite_direction, context="reversal")
 
         # Update old state as CLOSED
-        update_position_state(symbol, opposite_direction, opposite_position_id, {"status": "CLOSED"})
+        await update_position_state(symbol, opposite_direction, opposite_position_id, {"status": "CLOSED"})
 
         # Return doubled quantity to use for new entry
         return round(existing_state["total_qty"] + new_qty, 3)

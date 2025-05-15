@@ -2,7 +2,8 @@ from flask import request, jsonify
 from datetime import datetime
 from modules.utils import parse_signal, place_order, is_duplicate_signal, maybe_reverse_position
 from modules.logger_config import logger, error_logger
-from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
+# from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
+from modules.redis_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.loss_tracking import is_daily_loss_limit_exceeded
 from modules.price_feed import validate_and_process_signal
 import time
@@ -57,7 +58,7 @@ def webhook_handler(symbol):
                 logger.warning(f"[DUPLICATE] Signal skipped for {symbol}-{direction}")
                 return
             logger.info(f"[PROCESS TRADE]: CREATE STATE - {symbol} {direction} {entry}")
-            state = get_or_create_symbol_direction_state(symbol, direction)
+            state = await get_or_create_symbol_direction_state(symbol, direction)
             position_status = state.get("status")
             position_step = state.get("step")
             position_sl = state.get("stop_loss")
@@ -95,7 +96,7 @@ def webhook_handler(symbol):
                         private=True
                     )
                     if response and response.get("code", -1) == 0:
-                        update_position_state(symbol, direction, '', state)
+                        await update_position_state(symbol, direction, '', state)
                         logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
                         logger.info(f"[TEST TRACE] ORDER RESPONSE: {response}")
                         break
