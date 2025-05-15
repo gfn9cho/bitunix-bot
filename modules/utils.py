@@ -222,17 +222,17 @@ async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, positi
 
         logger.info(f"[MODIFY ORDER] {sl_orders} {tp_orders}")
 
-        if tp_orders:
-            success = await safe_submit_tp_update(symbol, direction, tp_orders["data"],
-                                                  float(tp_orders["data"]["tpPrice"]))
-            if not success:
-                logger.warning(f"[TP WARNING] TP update failed for {symbol} {direction}")
-
         if sl_orders:
             success = await safe_submit_sl_update(symbol, direction, sl_orders["data"],
                                                   float(sl_orders["data"]["slPrice"]))
             if not success:
                 logger.warning(f"[SL WARNING] SL update failed for {symbol} {direction}")
+
+        if tp_orders:
+            success = await safe_submit_tp_update(symbol, direction, tp_orders["data"],
+                                                  float(tp_orders["data"]["tpPrice"]))
+            if not success:
+                logger.warning(f"[TP WARNING] TP update failed for {symbol} {direction}")
 
     except Exception as e:
         logger.error(f"[MODIFY TP/SL ERROR] Failed for {symbol} {direction}: {e}")
