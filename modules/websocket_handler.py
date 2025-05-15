@@ -69,7 +69,7 @@ async def listen_and_process(ws_url):
             "args": [
                 {"ch": "order"},
                 {"ch": "position"},
-                {"ch": "tp_sl"}
+                {"ch": "tpsl"}
             ]
         }
         await websocket.send(json.dumps(subscribe_request))
