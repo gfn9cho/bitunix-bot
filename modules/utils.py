@@ -413,14 +413,18 @@ def calculate_quantities(prices, direction):
     return [round(m / p, 6) for m, p in zip(multipliers, prices)]
 
 
-def is_duplicate_signal(symbol, direction, buffer_secs=5):
+async def is_duplicate_signal(symbol, direction, buffer_secs=5):
     key = f"signal_lock:{symbol}:{direction}"
     logger.info(f"[DUPLICATE SIGNAL]: {key}")
     current_ts = int(time.time())
     logger.info(f"[DUPLICATE SIGNAL]: {current_ts}")
 
     # Atomic set-if-not-exists with expiration
-    was_set = r.set(key, current_ts, nx=True, ex=buffer_secs)
+    try:
+        was_set = await r.set(key, current_ts, nx=True, ex=buffer_secs)
+    except Exception as e:
+        logger.error(f"[REDIS ERROR] Failed to check duplicate signal for {key}: {e}")
+        return True  # fail-safe: treat it as duplicate to avoid bad order
     logger.info(f"[DUPLICATE SIGNAL]: {was_set}")
     if not was_set:
         logger.info(f"[DUPLICATE SIGNAL CONFIRMED]")
