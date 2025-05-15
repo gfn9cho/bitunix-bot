@@ -13,7 +13,7 @@ from modules.logger_config import logger
 # from modules.postgres_state_manager import update_position_state, get_or_create_symbol_direction_state
 from modules.redis_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.price_feed import get_latest_mark_price
-from modules.redis_client import r
+from modules.redis_client import get_redis
 
 
 def get_today():
@@ -414,6 +414,7 @@ def calculate_quantities(prices, direction):
 
 
 async def is_duplicate_signal(symbol, direction, buffer_secs=5):
+    r = get_redis()
     key = f"signal_lock:{symbol}:{direction}"
     logger.info(f"[DUPLICATE SIGNAL]: {key}")
     current_ts = int(time.time())

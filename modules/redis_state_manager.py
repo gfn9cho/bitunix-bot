@@ -1,11 +1,13 @@
 import json
-from modules.redis_client import r
+from modules.redis_client import get_redis
 from modules.postgres_state_manager import get_or_create_symbol_direction_state as pg_get, \
     update_position_state as pg_update
 
 
 # Initialize Redis client (adjust configuration as needed)
 # r = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+
+r = get_redis()
 
 
 def _redis_key(symbol: str, direction: str, position_id: str = "") -> str:

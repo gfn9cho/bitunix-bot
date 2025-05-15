@@ -8,10 +8,13 @@ if not redis_url:
     raise ValueError("REDIS_URL not set. Make sure Redis add-on is configured.")
 
 url = urlparse(redis_url)
-r = redis.Redis(
-    host=url.hostname,
-    port=url.port,
-    db=0,  # default
-    decode_responses=True,
-    password=url.password or None  # handle no-password case
-)
+
+
+def get_redis():
+    return redis.Redis(
+        host=url.hostname,
+        port=url.port,
+        db=0,  # default
+        decode_responses=True,
+        password=url.password or None  # handle no-password case
+    )
