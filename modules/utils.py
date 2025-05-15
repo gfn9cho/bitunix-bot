@@ -163,6 +163,7 @@ async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, positi
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, headers=headers, params=params)
             resp.raise_for_status()
+            logger.info(f"[MODIFY TP/SL ORDER]: {position_id} {resp.json()}")
             orders = resp.json().get("data", [])
     except Exception as e:
         logger.error(f"[PENDING TP/SL FETCH FAILED] {e}")
@@ -170,7 +171,10 @@ async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, positi
 
     match = next((o for o in orders if o["positionId"] == position_id), None)
     if not match:
-        logger.warning(f"[MODIFY SKIPPED] No matching TP/SL order found for {symbol} position {position_id}")
+        logger.warning(f"[MODIFY FALLBACK] No matching TP/SL order found for {symbol} {position_id}. Attempting cancel and re-place.")
+        from modules.utils import cancel_all_new_orders, place_tp_sl_order_async
+        await cancel_all_new_orders(symbol, direction)
+        await place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qty, sl_qty)
         return
 
     order_id = match["id"]
