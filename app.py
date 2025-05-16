@@ -1,8 +1,7 @@
-from flask import Flask, request, jsonify
+from quart import Quart, request, jsonify
 from modules.webhook_handler import webhook_handler
 from modules.logger_config import logger
 from modules.websocket_handler import start_websocket_listener
-import threading
 import asyncio
 import os
 import json
@@ -11,25 +10,18 @@ import hmac
 import base64
 import secrets
 
-app = Flask(__name__)
+app = Quart(__name__)
 
 
 # --- Launch WebSocket Listener Correctly ---
-def start_ws_listener():
-    try:
-        logger.info("[INIT] Starting WebSocket listener via asyncio.run")
-        asyncio.run(start_websocket_listener())
-    except Exception as e:
-        logger.error(f"[WS THREAD ERROR] {e}")
-
-
-# Start listener before Flask app
-threading.Thread(target=start_ws_listener, daemon=True).start()
+@app.before_serving
+async def startup():
+    asyncio.create_task(start_websocket_listener())
 
 
 # --- Debug Signature Endpoint ---
 @app.route("/debug-signature", methods=["GET"])
-def debug_signature():
+async def debug_signature():
     API_KEY = os.getenv("API_KEY")
     API_SECRET = os.getenv("API_SECRET")
     timestamp = str(int(time.time() * 1000))
@@ -64,9 +56,9 @@ def debug_signature():
 
 # --- Simulated TP Trigger ---
 @app.route("/simulate-tp", methods=["POST"])
-def simulate_tp():
+async def simulate_tp():
     try:
-        data = request.json
+        data = await request.get_json()
         symbol = data.get("symbol")
         price = data.get("triggerPrice")
 
@@ -81,7 +73,7 @@ def simulate_tp():
             }
         }
 
-        #handle_tp_sl(fake_tp_data)
+        # handle_tp_sl(fake_tp_data)
         return jsonify({"status": "TP event processed"}), 200
 
     except Exception as e:
@@ -90,11 +82,11 @@ def simulate_tp():
 
 # --- Webhook Route ---
 @app.route('/webhook/<symbol>', methods=['POST'])
-def webhook(symbol):
+async def webhook(symbol):
     logger.info(f"symbol: {symbol}")
-    return webhook_handler(symbol)
+    return await webhook_handler(symbol)
 
 
-# --- Start Flask ---
+# --- Start Quart ---
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

@@ -7,3 +7,4 @@ redis
 urllib3
 psycopg2-binary
 httpx
+quart

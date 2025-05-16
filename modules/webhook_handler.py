@@ -1,18 +1,19 @@
-from flask import request, jsonify
+import asyncio
+import time
 from datetime import datetime
-from modules.utils import parse_signal, place_order, is_duplicate_signal, maybe_reverse_position
+
+from quart import request, jsonify
+
 from modules.logger_config import logger, error_logger
-# from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
-from modules.redis_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.loss_tracking import is_daily_loss_limit_exceeded
 from modules.price_feed import validate_and_process_signal
-import time
-import asyncio
-import threading
+# from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
+from modules.redis_state_manager import get_or_create_symbol_direction_state, update_position_state
+from modules.utils import parse_signal, place_order, is_duplicate_signal, maybe_reverse_position
 
 
-def webhook_handler(symbol):
-    raw_data = request.get_data(as_text=True)
+async def webhook_handler(symbol):
+    raw_data = await request.get_data(as_text=True)
     logger.info(f"Raw webhook data: {raw_data}")
     logger.info(f"Request headers: {dict(request.headers)}")
 
@@ -22,7 +23,7 @@ def webhook_handler(symbol):
             return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
 
         try:
-            data = request.get_json(force=True)
+            data = await request.get_json(force=True)
             message = data.get("message", "")
             alert_name = data.get("alert_name", "unknown")
             payload_symbol = data.get("symbol")
@@ -130,7 +131,7 @@ def webhook_handler(symbol):
                 symbol, entry, direction, interval, signal_time, process_trade
             )
 
-        threading.Thread(target=lambda: asyncio.run(wrapped_process())).start()
+        asyncio.create_task(wrapped_process())
 
         return jsonify({
             "status": "parsed",

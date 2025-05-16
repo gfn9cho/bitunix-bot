@@ -15,7 +15,8 @@ def _redis_key(symbol: str, direction: str, position_id: str = "") -> str:
     return f"{base}:{position_id}" if position_id else base
 
 
-async def get_or_create_symbol_direction_state(symbol: str, direction: str, position_id: str = "", reversal_check: bool = False) -> dict:
+async def get_or_create_symbol_direction_state(symbol: str, direction: str, position_id: str = "",
+                                               reversal_check: bool = False) -> dict:
     key = _redis_key(symbol, direction)
     state_json = await r.get(key)
     if state_json:
