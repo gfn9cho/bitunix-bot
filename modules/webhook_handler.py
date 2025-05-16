@@ -10,6 +10,7 @@ from modules.price_feed import validate_and_process_signal
 # from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.redis_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.utils import parse_signal, place_order, is_duplicate_signal, maybe_reverse_position
+from modules.signal_limiter import should_accept_signal
 
 
 async def webhook_handler(symbol):
@@ -58,6 +59,10 @@ async def webhook_handler(symbol):
             if await is_duplicate_signal(symbol, direction):
                 logger.warning(f"[DUPLICATE] Signal skipped for {symbol}-{direction}")
                 return
+
+            if not await should_accept_signal(symbol, direction, interval):
+                return jsonify({"error": "Signal rate limit exceeded"})
+
             logger.info(f"[PROCESS TRADE]: CREATE STATE - {symbol} {direction} {entry}")
             state = await get_or_create_symbol_direction_state(symbol, direction)
             position_status = state.get("status")
