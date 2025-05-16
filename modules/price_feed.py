@@ -93,7 +93,7 @@ def get_next_bar_close(current_time: datetime.datetime, interval: str) -> dateti
     mins = minute_intervals.get(interval.lower(), 1)
     rounded_minute = (current_time.minute // mins + 1) * mins
     return current_time.replace(second=0, microsecond=0) + datetime.timedelta(
-        minutes=(rounded_minute - current_time.minute - 0.02))
+        minutes=(rounded_minute - current_time.minute))
 
 # print("SOLUSDT 1M close:", get_latest_close_price("SOLUSDT", "1m"))
 # false_sginal = is_false_signal("SOLUSDT", 176.90, "BUY", "1m", datetime.datetime.utcnow())
