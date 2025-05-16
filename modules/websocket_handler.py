@@ -211,8 +211,23 @@ async def handle_ws_message(message):
                 tp_qty = round(old_qty * TP_DISTRIBUTION[step], 3)
                 new_qty = round(old_qty - tp_qty, 3)
                 next_step = step + 1
+                entry = float(state.get("entry_price"))
 
-                new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
+                try:
+                    if step == 0:
+                        if direction == "BUY":
+                            new_sl = entry - (7 / 3) * (trigger_price - entry)
+                        else:
+                            new_sl = entry + (7 / 3) * (entry - trigger_price)
+                    else:
+                        new_sl = tps[step - 1]
+                except Exception as e:
+                    logger.info(f"[TP LEVEL 1 Beakeven calculation error]")
+                    new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
+
+                logger.info(f"[BREAKEVEN SL] {symbol} {direction} step={step} → SL={new_sl}")
+
+                #new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
                 new_tp = tps[next_step] if next_step < len(tps) else None
 
                 if step == 0:
