@@ -198,6 +198,7 @@ async def handle_ws_message(message):
                 direction = "BUY" if side == "LONG" else "SELL"
                 trigger_type = tp_data.get("triggerType")
                 event = tp_data.get("event")
+                logger.info(f"[TPSL EVENT]: {tp_data}")
 
                 status = tp_data.get("status")
                 if event != "CLOSE" or status != "FILLED":
