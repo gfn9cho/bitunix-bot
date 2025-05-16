@@ -39,4 +39,4 @@ async def update_position_state(symbol: str, direction: str, position_id: str, u
 async def delete_position_state(symbol: str, direction: str, position_id: str):
     key = _redis_key(symbol, direction)
     await r.delete(key)
-    pg_delete(symbol, direction, position_id)
+    pg_delete(symbol, direction, '')

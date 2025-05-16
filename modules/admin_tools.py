@@ -28,7 +28,7 @@ async def cleanup_invalid_position_ids():
                 continue
 
             value = json.loads(raw)
-            if value.get("position_id") is True:
+            if value.get("position_id") == "true":
                 await r.delete(key)
                 deleted.append(key)
 
