@@ -211,10 +211,10 @@ async def handle_ws_message(message):
                 tp_qty = round(old_qty * TP_DISTRIBUTION[step], 3)
                 new_qty = round(old_qty - tp_qty, 3)
                 next_step = step + 1
-                entry = float(state.get("entry_price"))
-
+                entry = float(state.get("entry_price", 0))
+                logger.info(f"[TP SL INFO]:{state}")
                 try:
-                    if step == 0:
+                    if step == 0 and entry != 0:
                         if direction == "BUY":
                             new_sl = entry - (7 / 3) * (trigger_price - entry)
                         else:
