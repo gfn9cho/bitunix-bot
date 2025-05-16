@@ -397,7 +397,7 @@ async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float
     If an opposite position is open, closes it and opens a new one with doubled quantity.
     """
     opposite_direction = "SELL" if new_direction == "BUY" else "BUY"
-    existing_state = await get_or_create_symbol_direction_state(symbol, opposite_direction, True)
+    existing_state = await get_or_create_symbol_direction_state(symbol, opposite_direction, '', True)
 
     if not existing_state or existing_state.get("status") != "OPEN":
         logger.info(f"[REVERSE CHECK] No open {opposite_direction} position for {symbol}. Proceeding normally.")
