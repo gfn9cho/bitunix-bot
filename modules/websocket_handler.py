@@ -188,7 +188,7 @@ async def handle_ws_message(message):
                 except Exception as log_pnl_error:
                     logger.info(f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}")
 
-        elif topic == "tp_sl":
+        elif topic == "tpsl":
             try:
                 tp_data = data.get("data", {})
                 symbol = tp_data.get("symbol")
