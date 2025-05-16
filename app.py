@@ -2,9 +2,7 @@ from quart import Quart, request, jsonify
 from modules.webhook_handler import webhook_handler
 from modules.logger_config import logger
 from modules.websocket_handler import start_websocket_listener
-from modules.redis_client import get_redis
 from quart import Blueprint, jsonify
-import json
 import asyncio
 import os
 import json
@@ -12,9 +10,11 @@ import time
 import hmac
 import base64
 import secrets
+from modules.admin_tools import admin_tools
+
 
 app = Quart(__name__)
-
+app.register_blueprint(admin_tools)
 
 # --- Launch WebSocket Listener Correctly ---
 @app.before_serving
@@ -89,44 +89,6 @@ async def webhook(symbol):
     logger.info(f"symbol: {symbol}")
     return await webhook_handler(symbol)
 
-
-admin_tools = Blueprint("admin_tools", __name__)
-
-@admin_tools.route("/debug/redis-keys", methods=["GET"])
-async def list_redis_keys():
-    r = get_redis()
-    keys = await r.keys("position_state:*")
-    return jsonify({
-        "total_keys": len(keys),
-        "keys": keys
-    }), 200
-
-
-@admin_tools.route("/debug/cleanup-position-true", methods=["POST"])
-async def cleanup_invalid_position_ids():
-    r = get_redis()
-    keys = await r.keys("position_state:*")
-    deleted = []
-
-    for key in keys:
-        try:
-            raw = await r.get(key)
-            if not raw:
-                continue
-
-            value = json.loads(raw)
-            if value.get("position_id") is True:
-                await r.delete(key)
-                deleted.append(key)
-
-        except Exception as e:
-            print(f"[CLEANUP ERROR] {key}: {e}")
-
-    return jsonify({
-        "status": "completed",
-        "keys_deleted": deleted,
-        "total_deleted": len(deleted)
-    }), 200
 
 # --- Start Quart ---
 if __name__ == '__main__':
