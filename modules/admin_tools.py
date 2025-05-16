@@ -66,6 +66,7 @@ async def update_key_state(key):
 @admin_tools.route("/debug/redis-delete/<path:key>", methods=["DELETE"])
 async def delete_key(key):
     try:
+        r = get_redis()
         deleted = await r.delete(key)
         if deleted == 1:
             return jsonify({"status": "deleted", "key": key}), 200
