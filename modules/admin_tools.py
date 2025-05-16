@@ -28,7 +28,7 @@ async def cleanup_invalid_position_ids():
                 continue
 
             value = json.loads(raw)
-            if value.get("position_id") == "true":
+            if value.get("position_id") is True:
                 await r.delete(key)
                 deleted.append(key)
 
@@ -60,5 +60,16 @@ async def update_key_state(key):
         new_state = await request.get_json()
         await r.set(key, json.dumps(new_state))
         return jsonify({"status": "updated", "key": key}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@admin_tools.route("/debug/redis-delete/<path:key>", methods=["DELETE"])
+async def delete_key(key):
+    try:
+        deleted = await r.delete(key)
+        if deleted == 1:
+            return jsonify({"status": "deleted", "key": key}), 200
+        else:
+            return jsonify({"status": "not found", "key": key}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
