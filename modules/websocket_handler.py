@@ -192,7 +192,7 @@ async def handle_ws_message(message):
             try:
                 tp_data = data.get("data", {})
                 symbol = tp_data.get("symbol")
-                trigger_price = float(tp_data.get("triggerPrice"))
+                trigger_price = float(tp_data.get("tpOrderPrice"))
                 position_id = tp_data.get("positionId")
                 side = tp_data.get("side", "LONG").upper()
                 direction = "BUY" if side == "LONG" else "SELL"
