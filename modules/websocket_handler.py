@@ -226,10 +226,10 @@ async def handle_ws_message(message):
                 old_qty = float(state.get("total_qty", 0))
                 tp_qty_triggered = float(tp_data.get("tpQty"))
                 new_qty = round(old_qty - tp_qty_triggered, 3)
-                tp_qty = round(new_qty * float(TP_DISTRIBUTION[step + 1]), 3)
+                tp_qty = round(old_qty * float(TP_DISTRIBUTION[step + 1]), 3)
                 next_step = step + 1
-                entry = float(state.get("entry_price", 0))
                 trigger_price = float(tps[step])
+                entry = float(state.get("entry_price", 0))
                 logger.info(f"[TP SL INFO]:{state}")
                 try:
                     if step == 0 and entry != 0:
