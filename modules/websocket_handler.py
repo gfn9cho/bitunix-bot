@@ -143,26 +143,26 @@ async def handle_ws_message(message):
                 state["status"] = "OPEN"
                 logger.info(
                     f"[WEBSOCKET_HANDLER]: position_event: {position_event} avg_entry: {avg_entry} old_qty: {old_qty}")
-                tp1 = state["tps"][0] if state.get("tps") else None
+                #tp1 = state["tps"][0] if state.get("tps") else None
+                # if tp1:
+                #     tp_qty = round(new_qty * 0.7, 3)
+                #     logger.info(f"[INITIAL TP SET] {symbol} {direction} TP1 {tp1} Qty: {tp_qty}")
+                #     tp_order_id = await place_tp_sl_order_async(symbol, tp_price=tp1, sl_price=None,
+                #                                                 position_id=position_id, tp_qty=tp_qty, qty=new_qty)
+                #     if tp_order_id:
+                #         logger.info(f"[INITIAL TP SET]: tp_order_id: {tp_order_id}")
+                #         state.setdefault("tp_orders", {})["TP1"] = tp_order_id
                 sl_price = state["stop_loss"]
-                if tp1:
-                    tp_qty = round(new_qty * 0.7, 3)
-                    logger.info(f"[INITIAL TP SET] {symbol} {direction} TP1 {tp1} Qty: {tp_qty}")
-                    tp_order_id = await place_tp_sl_order_async(symbol, tp_price=tp1, sl_price=None,
-                                                                position_id=position_id, tp_qty=tp_qty, qty=new_qty)
-                    if tp_order_id:
-                        logger.info(f"[INITIAL TP SET]: tp_order_id: {tp_order_id}")
-                        state.setdefault("tp_orders", {})["TP1"] = tp_order_id
-
-                    logger.info(f"[INITIAL SL SET] {symbol} {direction} SL {sl_price}, Qty: {new_qty}")
-                    sl_order_id = await place_tp_sl_order_async(symbol, tp_price=None, sl_price=sl_price,
-                                                                position_id=position_id, tp_qty=None, qty=new_qty)
-                    if sl_order_id:
-                        state["sl_order_id"] = sl_order_id
-                for i in range(1, 4):
+                logger.info(f"[INITIAL SL SET] {symbol} {direction} SL {sl_price}, Qty: {new_qty}")
+                sl_order_id = await place_tp_sl_order_async(symbol, tp_price=None, sl_price=sl_price,
+                                                            position_id=position_id, tp_qty=None, qty=new_qty)
+                if sl_order_id:
+                    state["sl_order_id"] = sl_order_id
+                for i in range(0, 4):
                     tp_price = tps[i]
-                    tp_qty = round(new_qty * 0.1, 3)
-                    logger.info(f"[INITIAL TP/SL SET] {symbol} {direction} TP{i} {tp_price}, tpQty: {tp_qty}")
+                    tp_ratio = TP_DISTRIBUTION[i]
+                    tp_qty = round(new_qty * tp_ratio, 3)
+                    logger.info(f"[INITIAL TP/SL SET] {symbol} {direction} TP{i+1} {tp_price}, tpQty: {tp_qty}")
                     if tp_price:
                         order_id = await place_tp_sl_order_async(symbol, tp_price=tp_price, sl_price=None,
                                                                  position_id=position_id, tp_qty=tp_qty, qty=new_qty)
@@ -180,11 +180,12 @@ async def handle_ws_message(message):
                     step_index = int(tp_label.replace("TP", "")) - 1
                     tp_price = state["tps"][step_index]
                     tp_qty = round(new_qty * TP_DISTRIBUTION[step_index], 3)
-                    sl_price = state["stop_loss"]
                     logger.info(
                         f"[TP/SL UPDATED ON QTY INCREASE] {symbol} {direction} Step {step_index} TP: {tp_price}, TPQty: {tp_qty}")
                     await update_tp_quantity(order_id, symbol, tp_qty, tp_price)
-                    await update_sl_price(order_id, direction, symbol, new_qty, sl_price)
+                sl_order_id = state.get("sl_order_id")
+                sl_price = state["stop_loss"]
+                await update_sl_price(sl_order_id, direction, symbol, new_qty, sl_price)
                 # await modify_tp_sl_order_async(
                 #     direction,
                 #     symbol,
