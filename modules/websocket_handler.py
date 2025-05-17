@@ -209,6 +209,8 @@ async def handle_ws_message(message):
                 if event != "CLOSE" or status != "FILLED" and trigger_price != 0:
                         logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {event} with status: {status}")
                         return
+                else:
+                    logger.info(f"[TP/SL EVENT] Processing event: {event} with status: {status}")
 
                 symbol = tp_data.get("symbol")
                 position_id = tp_data.get("positionId")
