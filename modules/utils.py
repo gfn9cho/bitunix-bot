@@ -287,7 +287,7 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
             "symbol": symbol,
             "positionId": position_id,
             "slPrice": str(sl_price),
-            "slTriggerType": "MARKET_PRICE",
+            "slStopType": "MARK_PRICE",
             "slOrderType": "MARKET",
             "slQty": str(qty)
         }
@@ -296,7 +296,7 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
             "symbol": symbol,
             "positionId": position_id,
             "tpPrice": str(tp_price),
-            "tpTriggerType": "MARKET_PRICE",
+            "tpStopType": "MARK_PRICE",
             "tpOrderType": "MARKET",
             "tpQty": str(tp_qty)
         }
