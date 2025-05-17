@@ -4,12 +4,12 @@ from modules.logger_config import logger
 
 # Configurable map of timeframe -> (buffer_seconds, max_signals)
 TIMEFRAME_LIMITS = {
-    "1m": (5, 2),      # short-term: very strict
-    "5m": (10, 3),
-    "15m": (60, 3),
-    "1h": (120, 3),
-    "4h": (300, 2),
-    "1d": (600, 1),
+    "1M": (5, 2),      # short-term: very strict
+    "5M": (10, 3),
+    "15M": (60, 3),
+    "1H": (120, 3),
+    "4H": (300, 2),
+    "1D": (600, 1),
 }
 
 

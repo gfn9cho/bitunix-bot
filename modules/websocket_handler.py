@@ -191,19 +191,19 @@ async def handle_ws_message(message):
         elif topic == "tpsl":
             try:
                 tp_data = data.get("data", {})
+                event = tp_data.get("event")
+                status = tp_data.get("status")
+                if event != "CLOSE" or status != "FILLED":
+                        logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {event} with status: {status}")
+                        return
+
                 symbol = tp_data.get("symbol")
-                trigger_price = float(tp_data.get("tpOrderPrice"))
+                trigger_price = float(tp_data.get("tpOrderPrice", 0))
                 position_id = tp_data.get("positionId")
                 side = tp_data.get("side", "LONG").upper()
                 direction = "BUY" if side == "LONG" else "SELL"
-                trigger_type = tp_data.get("triggerType")
-                event = tp_data.get("event")
                 logger.info(f"[TPSL EVENT]: {tp_data}")
 
-                status = tp_data.get("status")
-                if event != "CLOSE" or status != "FILLED":
-                    logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {event} with status: {status}")
-                    return
 
                 state = await get_or_create_symbol_direction_state(symbol, direction, position_id=position_id)
                 tps = state.get("tps", [])

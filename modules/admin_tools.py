@@ -57,7 +57,7 @@ async def get_key_state(key):
 async def update_key_state(key):
     try:
         r = get_redis()
-        new_state = await request.get_json()
+        new_state = await r.get_json()
         await r.set(key, json.dumps(new_state))
         return jsonify({"status": "updated", "key": key}), 200
     except Exception as e:
