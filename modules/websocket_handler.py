@@ -168,6 +168,17 @@ async def handle_ws_message(message):
                     tp_qty=tp_qty,
                     sl_qty=new_qty
                 )
+                try:
+                    position_margin = float(pos_event.get("margin"))
+                    position_leverage = float(pos_event.get("leverage", 20))
+                    # position_rpnl = float(pos_event.get("realizedPNL"))
+                    position_fee = float(pos_event.get("fee"))
+                    avg_entry = ((position_margin * position_leverage) + position_fee) / new_qty
+                    state["entry_price"] = round(avg_entry, 6)
+                    state["total_qty"] = round(new_qty, 3)
+                    await update_position_state(symbol, direction, position_id, state)
+                except Exception as e:
+                    logger.warning(f"[STATE UPDATE ERROR on qty increase] {e}")
 
             if position_event == "CLOSE" and new_qty == 0:
                 # delete_position_state(symbol, direction, position_id)
@@ -193,12 +204,13 @@ async def handle_ws_message(message):
                 tp_data = data.get("data", {})
                 event = tp_data.get("event")
                 status = tp_data.get("status")
-                if event != "CLOSE" or status != "FILLED":
+                trigger_price = float(tp_data.get("tpOrderPrice", 0))
+
+                if event != "CLOSE" or status != "FILLED" and trigger_price != 0:
                         logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {event} with status: {status}")
                         return
 
                 symbol = tp_data.get("symbol")
-                trigger_price = float(tp_data.get("tpOrderPrice", 0))
                 position_id = tp_data.get("positionId")
                 side = tp_data.get("side", "LONG").upper()
                 direction = "BUY" if side == "LONG" else "SELL"

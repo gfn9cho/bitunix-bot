@@ -1,5 +1,5 @@
 import time
-from modules.redis_client import redis as r
+from modules.redis_client import get_redis
 from modules.logger_config import logger
 
 # Configurable map of timeframe -> (buffer_seconds, max_signals)
@@ -29,6 +29,7 @@ async def should_accept_signal(symbol: str, direction: str, timeframe: str) -> b
     redis_key = f"signal_limiter:{symbol}:{direction}:{timeframe}:{window_key}"
 
     try:
+        r = get_redis()
         count = await r.get(redis_key)
         if count and int(count) >= max_signals:
             logger.warning(f"[SIGNAL LIMIT] {symbol} {direction} exceeded limit {max_signals} in {timeframe}")
