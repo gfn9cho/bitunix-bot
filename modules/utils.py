@@ -321,10 +321,7 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
                                          content=body_json)
             response.raise_for_status()
             logger.info(f"[TP/SL ORDER SUCCESS] {response.json()}")
-            response_data = response.get("data")
-            if isinstance(response_data, list):
-                order_ids = [o.get("orderId") for o in response_data]
-                logger.info(f"[TP/SL ORDER IDS] {order_ids}")
+            response_data = response.json().get("data")
 
             order_id = None
 
