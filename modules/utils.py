@@ -41,7 +41,7 @@ def generate_get_sign_api(nonce, timestamp, method, data):
 
 
 async def is_valid_sl_price(direction: str, sl_price: float,
-                            mark_price: float, buffer_pct: float = 0.02) -> bool:
+                            mark_price: float, buffer_pct: float = 0.001) -> bool:
     if direction == "BUY":
         return sl_price < mark_price * (1 + buffer_pct)
     else:
@@ -49,7 +49,7 @@ async def is_valid_sl_price(direction: str, sl_price: float,
 
 
 async def is_valid_tp_price(direction: str, tp_price: float,
-                            mark_price: float, buffer_pct: float = 0.02) -> bool:
+                            mark_price: float, buffer_pct: float = 0.001) -> bool:
     if direction == "BUY":
         return tp_price > mark_price * (1 + buffer_pct)
     else:
@@ -69,10 +69,12 @@ async def safe_submit_sl_update(symbol: str, direction: str, sl_payload: dict, s
                 await submit_modified_tp_sl_order_async(sl_payload)
                 return True
             else:
-                logger.warning(
-                    f"[SL ❌] SL {sl_price} invalid vs mark {mark_price} on {symbol}. Attempt {attempt + 1}/{retries}")
-                await asyncio.sleep(retry_delay)
-
+                buffer_pct = 0.001
+                adjusted_sl = mark_price * (1 + buffer_pct) if direction == "BUY" else mark_price * (1 - buffer_pct)
+                sl_payload["slPrice"] = str(round(adjusted_sl, 6))
+                logger.warning(f"[TP ❌] Adjusting SL to {adjusted_sl} due to invalid original value")
+                await submit_modified_tp_sl_order_async(sl_payload)
+                return True
         except Exception as e:
             logger.error(f"[SL ERROR] Retry {attempt + 1} for {symbol} {direction}: {e}")
             await asyncio.sleep(retry_delay)
@@ -94,10 +96,12 @@ async def safe_submit_tp_update(symbol: str, direction: str, tp_payload: dict, t
                 await submit_modified_tp_sl_order_async(tp_payload)
                 return True
             else:
-                logger.warning(
-                    f"[TP ❌] TP {tp_price} invalid vs mark {mark_price} on {symbol}. Attempt {attempt + 1}/{retries}")
-                await asyncio.sleep(retry_delay)
-
+                buffer_pct = 0.001
+                adjusted_tp = mark_price * (1 + buffer_pct) if direction == "BUY" else mark_price * (1 - buffer_pct)
+                tp_payload["tpPrice"] = str(round(adjusted_tp, 6))
+                logger.warning(f"[TP ❌] Adjusting TP to {adjusted_tp} due to invalid original value")
+                await submit_modified_tp_sl_order_async(tp_payload)
+                return True
         except Exception as e:
             logger.error(f"[TP ERROR] Retry {attempt + 1} for {symbol} {direction}: {e}")
             await asyncio.sleep(retry_delay)
