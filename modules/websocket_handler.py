@@ -209,8 +209,9 @@ async def handle_ws_message(message):
                 tps = state.get("tps", [])
                 step = state.get("step", 0)
                 old_qty = state.get("total_qty", 0)
-                tp_qty = round(old_qty * TP_DISTRIBUTION[step], 3)
-                new_qty = round(old_qty - tp_qty, 3)
+                tp_qty_triggered = tp_data.get("tpQty")
+                new_qty = round(old_qty - tp_qty_triggered, 3)
+                tp_qty = round(new_qty * TP_DISTRIBUTION[step + 1], 3)
                 next_step = step + 1
                 entry = float(state.get("entry_price", 0))
                 logger.info(f"[TP SL INFO]:{state}")
