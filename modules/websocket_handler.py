@@ -151,6 +151,7 @@ async def handle_ws_message(message):
                     tp_order_id = await place_tp_sl_order_async(symbol, tp_price=tp1, sl_price=None,
                                                                 position_id=position_id, tp_qty=tp_qty, qty=new_qty)
                     if tp_order_id:
+                        logger.info(f"[INITIAL TP SET]: tp_order_id: {tp_order_id}")
                         state.setdefault("tp_orders", {})["TP1"] = tp_order_id
 
                     logger.info(f"[INITIAL SL SET] {symbol} {direction} SL {sl_price}, Qty: {new_qty}")

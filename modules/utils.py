@@ -321,7 +321,17 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
                                          content=body_json)
             response.raise_for_status()
             logger.info(f"[TP/SL ORDER SUCCESS] {response.json()}")
-            order_id = response.get("data", {})[0].get("orderId")
+            response_data = response.get("data")
+            if isinstance(response_data, list):
+                order_ids = [o.get("orderId") for o in response_data]
+                logger.info(f"[TP/SL ORDER IDS] {order_ids}")
+
+            order_id = None
+
+            if isinstance(response_data, list) and len(response_data) > 0:
+                order_id = response_data[0].get("orderId")
+            elif isinstance(response_data, dict):
+                order_id = response_data.get("orderId")
             return order_id
     except httpx.RequestError as e:
         logger.error(f"[ORDER FAILED] {e}")
