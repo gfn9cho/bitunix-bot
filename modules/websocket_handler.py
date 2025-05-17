@@ -204,14 +204,14 @@ async def handle_ws_message(message):
                 tp_data = data.get("data", {})
                 event = tp_data.get("event")
                 status = tp_data.get("status")
-                trigger_price = float(tp_data.get("tpOrderPrice", 0))
-                logger.info(f"[TP/SL EVENT]: trigger_price: {trigger_price}")
+                #trigger_price = float(tp_data.get("tpOrderPrice", 0))
+                #logger.info(f"[TP/SL EVENT]: trigger_price: {trigger_price}")
 
-                if event != "CLOSE" or status != "FILLED" and trigger_price != 0:
-                        logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {event} with status: {status}")
+                if event != "CLOSE" or status != "FILLED":
+                        logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {tp_data} with status: {status}")
                         return
                 else:
-                    logger.info(f"[TP/SL EVENT] Processing event: {event} with status: {status}")
+                    logger.info(f"[TP/SL EVENT] Processing event: {tp_data} with status: {status}")
 
                 symbol = tp_data.get("symbol")
                 position_id = tp_data.get("positionId")
@@ -229,6 +229,7 @@ async def handle_ws_message(message):
                 tp_qty = round(new_qty * float(TP_DISTRIBUTION[step + 1]), 3)
                 next_step = step + 1
                 entry = float(state.get("entry_price", 0))
+                trigger_price = float(state.get(tps[step]))
                 logger.info(f"[TP SL INFO]:{state}")
                 try:
                     if step == 0 and entry != 0:
