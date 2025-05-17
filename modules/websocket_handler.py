@@ -185,7 +185,7 @@ async def handle_ws_message(message):
                     await update_tp_quantity(order_id, symbol, tp_qty, tp_price)
                 sl_order_id = state.get("sl_order_id")
                 sl_price = state["stop_loss"]
-                await update_sl_price(sl_order_id, direction, symbol, new_qty, sl_price)
+                await update_sl_price(sl_order_id, direction, symbol, sl_price, new_qty)
                 # await modify_tp_sl_order_async(
                 #     direction,
                 #     symbol,
