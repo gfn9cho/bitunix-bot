@@ -13,9 +13,10 @@ from modules.logger_config import logger
 from modules.loss_tracking import log_profit_loss
 # from modules.state import position_state, save_position_state, get_or_create_symbol_direction_state
 from modules.redis_state_manager import get_or_create_symbol_direction_state, \
-        update_position_state, delete_position_state
+    update_position_state, delete_position_state
 # from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
-from modules.utils import place_tp_sl_order_async, cancel_all_new_orders, modify_tp_sl_order_async
+from modules.utils import place_tp_sl_order_async, cancel_all_new_orders, \
+    modify_tp_sl_order_async, update_tp_quantity, update_sl_price
 
 # TP distribution: 70% for TP1, 10% each for TP2–TP4
 TP_DISTRIBUTION = [0.7, 0.1, 0.1, 0.1]
@@ -101,6 +102,7 @@ async def start_websocket_listener():
             logger.info("Reconnecting in 5 seconds...")
             await asyncio.sleep(5)
 
+
 async def handle_ws_message(message):
     try:
         data = json.loads(message)
@@ -142,36 +144,58 @@ async def handle_ws_message(message):
                 logger.info(
                     f"[WEBSOCKET_HANDLER]: position_event: {position_event} avg_entry: {avg_entry} old_qty: {old_qty}")
                 tp1 = state["tps"][0] if state.get("tps") else None
+                sl_price = state["stop_loss"]
                 if tp1:
-                    logger.info(f"[INITIAL TP/SL SET] {symbol} {direction} TP1 {tp1}, SL {state['stop_loss']}, Qty: {new_qty}")
-                    await place_tp_sl_order_async(symbol, tp_price=tp1, sl_price=state["stop_loss"],
-                                                  position_id=position_id, tp_qty=round(new_qty * 0.7, 3), qty=new_qty)
-                await update_position_state(symbol, direction, position_id, state)
+                    tp_qty = round(new_qty * 0.7, 3)
+                    logger.info(f"[INITIAL TP SET] {symbol} {direction} TP1 {tp1} Qty: {tp_qty}")
+                    tp_order_id = await place_tp_sl_order_async(symbol, tp_price=tp1, sl_price=None,
+                                                                position_id=position_id, tp_qty=None, qty=new_qty)
+                    if tp_order_id:
+                        state.setdefault("tp_orders", {})["TP1"] = tp_order_id
 
+                    logger.info(f"[INITIAL SL SET] {symbol} {direction} SL {sl_price}, Qty: {new_qty}")
+                    sl_order_id = await place_tp_sl_order_async(symbol, tp_price=None, sl_price=sl_price,
+                                                                position_id=position_id, tp_qty=None, qty=new_qty)
+                    if sl_order_id:
+                        state["sl_order_id"] = sl_order_id
+                for i in range(1, 4):
+                    tp_price = tps[i]
+                    tp_qty = round(new_qty * 0.1, 3)
+                    logger.info(f"[INITIAL TP/SL SET] {symbol} {direction} TP{i} {tp_price}, tpQty: {tp_qty}")
+                    if tp_price:
+                        order_id = await place_tp_sl_order_async(symbol, tp_price=tp_price, sl_price=None,
+                                                                 position_id=position_id, tp_qty=tp_qty, qty=new_qty)
+                        if order_id:
+                            state.setdefault("tp_orders", {})[f"TP{i + 1}"] = order_id
+                    else:
+                        logger.info(
+                            f"[INITIAL TP/SL NOT SET FOR]: {symbol} {direction} TP{i} {tp_price}, tpQty: {tp_qty}")
+
+                await update_position_state(symbol, direction, position_id, state)
 
             # New logic: if position qty increases after step > 0, update TP/SL
             if position_event == "UPDATE" and new_qty > old_qty:
-                step = state.get("step", 0)
-                tps = state.get("tps", [])
-                tp_price = tps[step] if step < len(tps) else None
-                sl_price = state.get("stop_loss") if step == 0 else tps[step - 1]
-                tp_qty = round(new_qty * TP_DISTRIBUTION[step], 3)
-
-                logger.info(f"[TP/SL UPDATED ON QTY INCREASE] {symbol} {direction} Step {step} TP: {tp_price}, SL: {sl_price}, Qty: {new_qty}, TPQty: {tp_qty}")
-
-                await modify_tp_sl_order_async(
-                    direction,
-                    symbol,
-                    tp_price=tp_price,
-                    sl_price=sl_price,
-                    position_id=position_id,
-                    tp_qty=tp_qty,
-                    sl_qty=new_qty
-                )
+                for tp_label, order_id in state["tp_orders"].items():
+                    step_index = int(tp_label.replace("TP", "")) - 1
+                    tp_price = state["tps"][step_index]
+                    tp_qty = round(new_qty * TP_DISTRIBUTION[step_index], 3)
+                    sl_price = state["stop_loss"]
+                    logger.info(
+                        f"[TP/SL UPDATED ON QTY INCREASE] {symbol} {direction} Step {step_index} TP: {tp_price}, TPQty: {tp_qty}")
+                    await update_tp_quantity(order_id, symbol, tp_qty, tp_price)
+                    await update_sl_price(order_id, direction, symbol, new_qty, sl_price)
+                # await modify_tp_sl_order_async(
+                #     direction,
+                #     symbol,
+                #     tp_price=tp_price,
+                #     sl_price=sl_price,
+                #     position_id=position_id,
+                #     tp_qty=tp_qty,
+                #     sl_qty=new_qty
+                # )
                 try:
                     position_margin = float(pos_event.get("margin"))
                     position_leverage = float(pos_event.get("leverage", 20))
-                    # position_rpnl = float(pos_event.get("realizedPNL"))
                     position_fee = float(pos_event.get("fee"))
                     avg_entry = ((position_margin * position_leverage) + position_fee) / new_qty
                     state["entry_price"] = round(avg_entry, 6)
@@ -204,12 +228,12 @@ async def handle_ws_message(message):
                 tp_data = data.get("data", {})
                 event = tp_data.get("event")
                 status = tp_data.get("status")
-                #trigger_price = float(tp_data.get("tpOrderPrice", 0))
-                #logger.info(f"[TP/SL EVENT]: trigger_price: {trigger_price}")
+                # trigger_price = float(tp_data.get("tpOrderPrice", 0))
+                # logger.info(f"[TP/SL EVENT]: trigger_price: {trigger_price}")
 
                 if event != "CLOSE" or status != "FILLED":
-                        logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {tp_data} with status: {status}")
-                        return
+                    logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {tp_data} with status: {status}")
+                    return
                 else:
                     logger.info(f"[TP/SL EVENT] Processing event: {tp_data} with status: {status}")
 
@@ -219,14 +243,12 @@ async def handle_ws_message(message):
                 direction = "BUY" if side == "LONG" else "SELL"
                 logger.info(f"[TPSL EVENT]: {tp_data}")
 
-
                 state = await get_or_create_symbol_direction_state(symbol, direction, position_id=position_id)
                 tps = state.get("tps", [])
                 step = state.get("step", 0)
                 old_qty = float(state.get("total_qty", 0))
                 tp_qty_triggered = float(tp_data.get("tpQty"))
                 new_qty = round(old_qty - tp_qty_triggered, 3)
-                tp_qty = round(old_qty * float(TP_DISTRIBUTION[step + 1]), 3)
                 next_step = step + 1
                 trigger_price = float(tps[step])
                 entry = float(state.get("entry_price", 0))
@@ -245,23 +267,22 @@ async def handle_ws_message(message):
 
                 logger.info(f"[BREAKEVEN SL] {symbol} {direction} step={step} → SL={new_sl}")
 
-                #new_sl = state.get("entry_price") if step == 0 else tps[step - 1]
-                new_tp = tps[next_step] if next_step < len(tps) else None
-
                 if step == 0:
                     try:
                         await cancel_all_new_orders(symbol, direction)
                     except Exception as cancel_err:
                         logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
-
-                if new_tp:
-                    logger.info(f"[TP_SL CHANNEL] STEP {step} → {next_step} | New TP: {new_tp} SL: {new_sl}")
-                    await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=new_tp, sl_price=new_sl,
-                                                   position_id=position_id, tp_qty=tp_qty, sl_qty=new_qty)
-                else:
-                    logger.info(f"[TP_SL CHANNEL] STEP {step} → {next_step} | Final SL Only: {new_sl}")
-                    await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=None, sl_price=new_sl,
-                                                   position_id=position_id, tp_qty=None, sl_qty=new_qty)
+                order_id = state.get("sl_order_id")
+                await update_sl_price(order_id,direction, symbol, new_sl, new_qty)
+                # if new_tp:
+                #     logger.info(f"[TP_SL CHANNEL] STEP {step} → {next_step} | New TP: {new_tp} SL: {new_sl}")
+                #     await update_sl_price(order_id,direction, symbol, new_sl, new_qty)
+                #     await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=new_tp, sl_price=new_sl,
+                #                                    position_id=position_id, tp_qty=tp_qty, sl_qty=new_qty)
+                # else:
+                #     logger.info(f"[TP_SL CHANNEL] STEP {step} → {next_step} | Final SL Only: {new_sl}")
+                #     await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=None, sl_price=new_sl,
+                #                                    position_id=position_id, tp_qty=None, sl_qty=new_qty)
 
                 state["step"] = next_step
                 state["total_qty"] = new_qty
@@ -271,7 +292,6 @@ async def handle_ws_message(message):
 
     except Exception as e:
         logger.error(f"WebSocket message handler error: {str(e)}")
-
 
 # async def handle_ws_message(message):
 #     try:

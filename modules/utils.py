@@ -144,104 +144,32 @@ async def submit_modified_tp_sl_order_async(order_data):
         return None
 
 
-# async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
-#     # Fetch pending TP/SL orders
-#     url = f"{BASE_URL}/api/v1/futures/tpsl/get_pending_orders"
-#     random_bytes = secrets.token_bytes(32)
-#     nonce = base64.b64encode(random_bytes).decode('utf-8')
-#     timestamp = str(int(time.time() * 1000))
-#
-#     data = {"symbol": symbol}
-#     method = "get"
-#     get_sign = generate_get_sign_api(nonce, timestamp, method, data)
-#
-#     get_headers = {
-#         "api-key": API_KEY,
-#         "nonce": nonce,
-#         "timestamp": timestamp,
-#         "sign": get_sign,
-#         "language": "en-US",
-#         "Content-Type": "application/json"
-#     }
-#
-#     try:
-#         async with httpx.AsyncClient(timeout=10.0) as client:
-#             response = await client.request(method, url, headers=get_headers, params=data)
-#             response.raise_for_status()
-#             response_data = response.json()
-#     except httpx.RequestError as e:
-#         logger.error(f"[PENDING TP/SL ORDERS] {e}")
-#         if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
-#             logger.error(f"[PENDING TP/SL ORDERS] Response: {e.response.text}")
-#         return None
-#
-#     orders = response_data.get("data", {})
-#     logger.info(f"[PENDING TP/SL ORDERS]: {response_data}")
-#     match = next((o for o in orders if o["positionId"] == position_id), None)
-#     if not match:
-#         logger.warning(
-#             f"[MODIFY FALLBACK] No matching TP/SL order found for {symbol} {position_id}. Attempting cancel and re-place.")
-#         return
-#
-#     order_id = match["id"]
-#
-#     # Validate TP/SL prices before submission
-#     try:
-#         mark_price = await get_latest_mark_price(symbol)
-#
-#         tp_valid = tp_price and await is_valid_tp_price(direction, tp_price, mark_price)
-#         sl_valid = sl_price and await is_valid_sl_price(direction, sl_price, mark_price)
-#
-#         if not tp_valid and not sl_valid:
-#             logger.warning(f"[TP/SL INVALID] Neither TP nor SL valid for {symbol} at mark {mark_price}")
-#             return
-#
-#         payload = {
-#             "symbol": symbol,
-#             "orderId": order_id
-#         }
-#
-#         if tp_valid:
-#             payload.update({
-#                 "tpPrice": str(tp_price),
-#                 "tpStopType": "MARK_PRICE",
-#                 "tpOrderType": "MARKET",
-#                 "tpQty": str(tp_qty)
-#             })
-#             logger.info(f"[TP ✅] Submitting TP {tp_price} (mark: {mark_price}) for {symbol} {direction}")
-#
-#         if sl_valid:
-#             payload.update({
-#                 "slPrice": str(sl_price),
-#                 "slStopType": "MARK_PRICE",
-#                 "slOrderType": "MARKET",
-#                 "slQty": str(sl_qty)
-#             })
-#             logger.info(f"[SL ✅] Submitting SL {sl_price} (mark: {mark_price}) for {symbol} {direction}")
-#
-#         nonce = base64.b64encode(random_bytes).decode('utf-8')
-#         timestamp = str(int(time.time() * 1000))
-#         modify_url = f"{BASE_URL}/api/v1/futures/tpsl/modify_order"
-#         body_json = json.dumps(payload, separators=(',', ':'))
-#         digest_input = nonce + timestamp + API_KEY + body_json
-#         digest = hashlib.sha256(digest_input.encode('utf-8')).hexdigest()
-#         sign_input = digest + API_SECRET
-#         signature = hashlib.sha256(sign_input.encode('utf-8')).hexdigest()
-#         post_headers = {
-#             "Content-Type": "application/json",
-#             "api-key": API_KEY,
-#             "sign": signature,
-#             "timestamp": timestamp,
-#             "nonce": nonce
-#         }
-#         async with httpx.AsyncClient() as client:
-#             res = await client.post(modify_url, headers=post_headers, content=body_json)
-#             res.raise_for_status()
-#             logger.info(f"[TP/SL MODIFY SUCCESS] {body_json}")
-#             logger.info(f"[TP/SL MODIFY SUCCESS] {res.json()}")
-#
-#     except Exception as e:
-#         logger.error(f"[TP/SL MODIFY FAILED] {e}")
+async def update_tp_quantity(order_id: str, symbol: str, new_tp_qty: float, new_tp_price: float):
+    payload = {
+        "symbol": symbol,
+        "orderId": order_id,
+        "tpQty": str(round(new_tp_qty, 3)),
+        "tpOrderType": "MARKET",
+        "tpStopType": "MARK_PRICE",
+        "tpPrice": str(new_tp_price)
+    }
+
+    logger.info(f"[MODIFY TP QTY] {symbol} orderId={order_id} new_tp_qty={new_tp_qty}")
+    await submit_modified_tp_sl_order_async(payload)
+
+
+async def update_sl_price(order_id: str, direction: str, symbol: str, new_sl_price: float, sl_qty: float):
+    payload = {
+        "symbol": symbol,
+        "orderId": order_id,
+        "slPrice": str(round(new_sl_price, 6)),
+        "slQty": str(round(sl_qty, 3)),
+        "slOrderType": "MARKET",
+        "slStopType": "MARK_PRICE"
+    }
+
+    logger.info(f"[MODIFY SL] {symbol} orderId={order_id} new_sl_price={new_sl_price}")
+    await safe_submit_sl_update(symbol, direction, payload, new_sl_price)
 
 
 async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
@@ -354,19 +282,24 @@ async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, positi
 async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qty, qty):
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
-
-    order_data = {
-        "symbol": symbol,
-        "positionId": position_id,
-        "tpPrice": str(tp_price),
-        "tpTriggerType": "MARKET_PRICE",
-        "tpOrderType": "MARKET",
-        "slPrice": str(sl_price),
-        "slTriggerType": "MARKET_PRICE",
-        "slOrderType": "MARKET",
-        "tpQty": str(tp_qty),
-        "slQty": str(qty)
-    }
+    if sl_price:
+        order_data = {
+            "symbol": symbol,
+            "positionId": position_id,
+            "slPrice": str(sl_price),
+            "slTriggerType": "MARKET_PRICE",
+            "slOrderType": "MARKET",
+            "slQty": str(qty)
+        }
+    else:
+        order_data = {
+            "symbol": symbol,
+            "positionId": position_id,
+            "tpPrice": str(tp_price),
+            "tpTriggerType": "MARKET_PRICE",
+            "tpOrderType": "MARKET",
+            "tpQty": str(tp_qty)
+        }
 
     body_json = json.dumps(order_data, separators=(',', ':'))
     digest_input = nonce + timestamp + API_KEY + body_json
@@ -388,7 +321,8 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
                                          content=body_json)
             response.raise_for_status()
             logger.info(f"[TP/SL ORDER SUCCESS] {response.json()}")
-            return response.json()
+            order_id = response.get("data", {}).get("orderId")
+            return order_id
     except httpx.RequestError as e:
         logger.error(f"[ORDER FAILED] {e}")
         if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
