@@ -72,7 +72,8 @@ async def is_false_signal(symbol: str, entry_price: float, direction: str, inter
 async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str,
                                       signal_time: datetime.datetime, callback):
     try:
-        is_false = await is_false_signal(symbol, entry_price, direction, interval, signal_time)
+        # is_false = await is_false_signal(symbol, entry_price, direction, interval, signal_time)
+        is_false = False
         if is_false:
             logger.warning(f"❌ False signal ignored: {symbol} {direction} at {entry_price}")
             log_false_signal(symbol, direction, entry_price, interval, "false_signal", signal_time)
