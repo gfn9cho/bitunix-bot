@@ -54,7 +54,7 @@ def get_latest_close_price(symbol: str, interval: str) -> float:
 
 
 async def is_false_signal(symbol: str, entry_price: float, direction: str, interval: str,
-                          signal_time: datetime.datetime) -> bool:
+                          signal_time: datetime.datetime, buffer_pct: float = 0.005) -> bool:
     bar_close_time = get_next_bar_close(signal_time, interval)
     wait_seconds = (bar_close_time - datetime.datetime.utcnow()).total_seconds()
     if wait_seconds > 0:
@@ -62,9 +62,10 @@ async def is_false_signal(symbol: str, entry_price: float, direction: str, inter
         await asyncio.sleep(wait_seconds)
 
     close_price = get_latest_close_price(symbol, interval)
-    if direction == "BUY" and entry_price > close_price:
+    buffer = entry_price * buffer_pct
+    if direction == "BUY" and entry_price > (close_price + buffer):
         return True
-    if direction == "SELL" and entry_price < close_price:
+    if direction == "SELL" and entry_price < (close_price - buffer):
         return True
     return False
 
@@ -72,8 +73,7 @@ async def is_false_signal(symbol: str, entry_price: float, direction: str, inter
 async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str,
                                       signal_time: datetime.datetime, callback):
     try:
-        # is_false = await is_false_signal(symbol, entry_price, direction, interval, signal_time)
-        is_false = False
+        is_false = await is_false_signal(symbol, entry_price, direction, interval, signal_time)
         if is_false:
             logger.warning(f"❌ False signal ignored: {symbol} {direction} at {entry_price}")
             log_false_signal(symbol, direction, entry_price, interval, "false_signal", signal_time)
