@@ -93,6 +93,7 @@ def get_latest_close_price(symbol: str, interval: str, reference_time: datetime 
                 if candle_time == previous_close_time:
                     logger.info(f"[MATCHED CANDLE]: {candle}")
                     return float(candle.get("close"))
+            logger.warning(f"[CANDLE NOT FOUND]: {symbol} Looking for {previous_close_time}, got {[datetime.datetime.utcfromtimestamp(int(c['time']) / 1000) for c in candles]}")
 
             raise ValueError("Matching candle not found for reference time")
 
