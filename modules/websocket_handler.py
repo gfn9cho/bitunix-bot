@@ -258,9 +258,9 @@ async def handle_ws_message(message):
                 try:
                     if step == 0 and entry != 0:
                         if direction == "BUY":
-                            new_sl = entry - (7 / 3) * (trigger_price - entry)
+                            new_sl = entry - (3 / 7) * ((trigger_price - entry) * 0.2)
                         else:
-                            new_sl = entry + (7 / 3) * (entry - trigger_price)
+                            new_sl = entry + (3 / 7) * ((entry - trigger_price) * 0.2)
                     else:
                         new_sl = tps[step - 1]
                 except Exception as e:
