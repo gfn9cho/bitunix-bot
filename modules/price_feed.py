@@ -109,9 +109,10 @@ async def is_false_signal(symbol: str, entry_price: float, direction: str, inter
                           signal_time: datetime.datetime, buffer_pct: float = 0.02) -> bool:
     # bar_close_time = get_previous_bar_close(signal_time, interval)
     # wait_seconds = (bar_close_time - datetime.datetime.utcnow()).total_seconds()
-    # if wait_seconds > 0:
-    #     logger.info(f"Waiting {wait_seconds:.2f} seconds for bar to close...")
-    #     await asyncio.sleep(wait_seconds)
+    wait_seconds = 0.1
+    if wait_seconds > 0:
+        logger.info(f"Waiting {wait_seconds:.2f} seconds for bar to close...")
+        await asyncio.sleep(wait_seconds)
 
     close_price = get_latest_close_price(symbol, interval, datetime.datetime.utcnow())
     buffer = entry_price * buffer_pct
