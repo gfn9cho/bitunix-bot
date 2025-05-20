@@ -77,7 +77,7 @@ def log_profit_loss(symbol, direction, positionid,  pnl, entry_type, ctime, date
 
 def is_daily_loss_limit_exceeded():
     net = get_today_net_loss()
-    return net <= MAX_DAILY_LOSS
+    return net <= float(MAX_DAILY_LOSS)
 
 
 def get_today_net_loss():
