@@ -7,7 +7,7 @@ BASE_URL = 'https://fapi.bitunix.com'
 POSITION_SIZE = 10  # dollars per entry
 LEVERAGE = 20
 LEVERAGE_MODE = "CROSS"
-MAX_DAILY_LOSS = os.getenv("API_KEY", -300)  # Max loss in USD per day
+MAX_DAILY_LOSS = float(os.getenv("API_KEY", -300))  # Max loss in USD per day
 
 FAILED_ORDER_LOG_FILE = "/var/data/bitunix-bot/failed_orders.json"
 DB_CONFIG = {
