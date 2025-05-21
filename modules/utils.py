@@ -353,8 +353,8 @@ async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float
     try:
         opposite_position_id = existing_state.get("position_id")
         # Optional: cancel any remaining limit/TP/SL orders
-        await cancel_all_new_orders(symbol, opposite_direction, context="reversal")
-
+        # await cancel_all_new_orders(symbol, opposite_direction, context="reversal")
+        await close_all_positions(symbol)
         # Update old state as CLOSED
         await update_position_state(symbol, opposite_direction, opposite_position_id, {"status": "CLOSED"})
         await delete_position_state(symbol, opposite_direction, opposite_position_id)
@@ -486,6 +486,39 @@ async def is_duplicate_signal(symbol, direction, buffer_secs=5):
         logger.info(f"[DUPLICATE SIGNAL CONFIRMED]")
         return True  # already locked
     return False
+
+async def close_all_positions(symbol):
+    close_position_payload = {
+        "symbol": symbol
+    }
+
+    close_position_nonce = base64.b64encode(secrets.token_bytes(32)).decode()
+    close_position_ts = str(int(time.time() * 1000))
+    close_position_body = json.dumps(close_position_payload, separators=(',', ':'))
+    close_position_digest = hashlib.sha256((close_position_nonce + close_position_ts + API_KEY + close_position_body).encode()).hexdigest()
+    close_position_sign = hashlib.sha256((close_position_digest + API_SECRET).encode()).hexdigest()
+
+    close_position_headers = {
+        "api-key": API_KEY,
+        "sign": close_position_sign,
+        "nonce": close_position_nonce,
+        "timestamp": close_position_ts,
+        "Content-Type": "application/json"
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            close_position_response = await client.post(
+                f"{BASE_URL}/api/v1/futures/trade/close_all_position",
+                headers=close_position_headers,
+                content=close_position_body
+            )
+            close_position_response.raise_for_status()
+            logger.info(f"[ORDER CANCEL SUCCESS] {symbol}: {close_position_response.json()}")
+    except httpx.RequestError as e:
+        logger.error(f"[ORDER CANCEL FAILED] {e}")
+        if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+            logger.error(f"[ORDER CANCEL FAILED] Response: {e.response.text}")
+        return None
 
 
 async def cancel_all_new_orders(symbol, direction, context="tp"):
