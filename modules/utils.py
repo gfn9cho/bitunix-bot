@@ -346,6 +346,7 @@ async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float
 
     if not existing_state or existing_state.get("status") != "OPEN":
         logger.info(f"[REVERSE CHECK] No open {opposite_direction} position for {symbol}. Proceeding normally.")
+        await delete_position_state(symbol, opposite_direction)
         return new_qty  # no reversal needed
 
     logger.info(f"[REVERSAL DETECTED] Closing {opposite_direction} position on {symbol} to open {new_direction}")
