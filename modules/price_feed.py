@@ -29,29 +29,29 @@ async def get_latest_mark_price(symbol: str) -> float:
         raise RuntimeError(f"Failed to fetch mark price for {symbol}: {e}")
 
 
-# def get_latest_close_price(symbol: str, interval: str) -> float:
-#     url = f"{BASE_URL}/api/v1/futures/market/kline"
-#     params = {
-#         "symbol": symbol.upper(),
-#         "interval": interval.lower(),  # Bitunix uses '1M', '3M', etc.
-#         "limit": 1
-#     }
-#     try:
-#         response = requests.get(url, params=params)
-#         logger.info(f"{response}")
-#         logger.info(f"{response.json()}")
-#         response.raise_for_status()
-#         candles = response.json().get("data", [])
-#         if not candles:
-#             raise ValueError("No candle data returned")
-#
-#         # Bitunix format: [timestamp, open, high, low, close, volume, turnover]
-#         latest_candle = candles[0]
-#         logger.info(f"[LATEST CANDLE]: {latest_candle}")
-#         close_price = float(latest_candle.get("close"))
-#         return close_price
-#     except Exception as e:
-#         raise RuntimeError(f"Failed to fetch close price for {symbol} from Bitunix: {e}")
+def get_latest_close_price_current(symbol: str, interval: str) -> float:
+    url = f"{BASE_URL}/api/v1/futures/market/kline"
+    params = {
+        "symbol": symbol.upper(),
+        "interval": interval.lower(),  # Bitunix uses '1M', '3M', etc.
+        "limit": 1
+    }
+    try:
+        response = requests.get(url, params=params)
+        logger.info(f"{response}")
+        logger.info(f"{response.json()}")
+        response.raise_for_status()
+        candles = response.json().get("data", [])
+        if not candles:
+            raise ValueError("No candle data returned")
+
+        # Bitunix format: [timestamp, open, high, low, close, volume, turnover]
+        latest_candle = candles[0]
+        logger.info(f"[LATEST CANDLE]: {latest_candle}")
+        close_price = float(latest_candle.get("close"))
+        return close_price
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch close price for {symbol} from Bitunix: {e}")
 
 
 def get_previous_bar_close(current_time: datetime, interval: str) -> datetime:
@@ -93,7 +93,8 @@ def get_latest_close_price(symbol: str, interval: str, reference_time: datetime 
                 if candle_time == previous_close_time:
                     logger.info(f"[MATCHED CANDLE]: {candle}")
                     return float(candle.get("close"))
-            logger.warning(f"[CANDLE NOT FOUND]: {symbol} Looking for {previous_close_time}, got {[datetime.datetime.utcfromtimestamp(int(c['time']) / 1000) for c in candles]}")
+            logger.warning(
+                f"[CANDLE NOT FOUND]: {symbol} Looking for {previous_close_time}, got {[datetime.datetime.utcfromtimestamp(int(c['time']) / 1000) for c in candles]}")
 
             raise ValueError("Matching candle not found for reference time")
 
@@ -107,14 +108,16 @@ def get_latest_close_price(symbol: str, interval: str, reference_time: datetime 
 
 async def is_false_signal(symbol: str, entry_price: float, direction: str, interval: str,
                           signal_time: datetime.datetime, buffer_pct: float = 0.02) -> bool:
-    # bar_close_time = get_previous_bar_close(signal_time, interval)
-    # wait_seconds = (bar_close_time - datetime.datetime.utcnow()).total_seconds()
-    # wait_seconds = 0.1
-    # if wait_seconds > 0:
-    #     logger.info(f"Waiting {wait_seconds:.2f} seconds for bar to close...")
-    #     await asyncio.sleep(wait_seconds)
+    if direction == "BUY":
+        close_price = get_latest_close_price(symbol, interval, datetime.datetime.utcnow())
+    else:
+        bar_close_time = get_previous_bar_close(signal_time, interval)
+        wait_seconds = (bar_close_time - datetime.datetime.utcnow()).total_seconds()
+        if wait_seconds > 0:
+            logger.info(f"Waiting {wait_seconds:.2f} seconds for bar to close...")
+            await asyncio.sleep(wait_seconds)
+        close_price = get_latest_close_price_current(symbol, direction)
 
-    close_price = get_latest_close_price(symbol, interval, datetime.datetime.utcnow())
     buffer = entry_price * buffer_pct
     if direction == "BUY" and entry_price > (close_price + buffer):
         return True
