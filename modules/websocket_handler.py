@@ -111,8 +111,8 @@ async def handle_ws_message(message):
         if topic == "position":
             pos_event = data.get("data", {})
             symbol = pos_event.get("symbol", "BTCUSDT")
-            side = pos_event.get("side", "LONG").upper()
-            direction = "BUY" if side == "LONG" else "SELL"
+            direction = pos_event.get("side", "BUY").upper()
+            # direction = "BUY" if side == "LONG" else "SELL"
             position_event = pos_event.get("event")
             new_qty = float(pos_event.get("qty", 0))
             position_id = str(pos_event.get("positionId"))
