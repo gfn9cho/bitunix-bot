@@ -117,10 +117,11 @@ async def handle_ws_message(message):
             new_qty = float(pos_event.get("qty", 0))
             position_id = str(pos_event.get("positionId"))
             state = await get_or_create_symbol_direction_state(symbol, direction, position_id=position_id)
-            logger.info(f"State inside position: {state}")
+            # logger.info(f"State inside position: {state}")
             # Weighted average entry price update
             old_qty = state.get("total_qty", 0)
-            logger.info(f"[WEBSOCKET_HANDLER]: position_event: {position_event} new_qty: {new_qty} old_qty: {old_qty}")
+            if new_qty != old_qty:
+                logger.info(f"[WEBSOCKET_HANDLER]: position_event: {position_event} new_qty: {new_qty} old_qty: {old_qty}")
             # Extract and normalize time info
             ctime_str = pos_event.get("ctime")
             tps = state.get("tps", [])
@@ -143,15 +144,6 @@ async def handle_ws_message(message):
                 state["status"] = "OPEN"
                 logger.info(
                     f"[WEBSOCKET_HANDLER]: position_event: {position_event} avg_entry: {avg_entry} old_qty: {old_qty}")
-                #tp1 = state["tps"][0] if state.get("tps") else None
-                # if tp1:
-                #     tp_qty = round(new_qty * 0.7, 3)
-                #     logger.info(f"[INITIAL TP SET] {symbol} {direction} TP1 {tp1} Qty: {tp_qty}")
-                #     tp_order_id = await place_tp_sl_order_async(symbol, tp_price=tp1, sl_price=None,
-                #                                                 position_id=position_id, tp_qty=tp_qty, qty=new_qty)
-                #     if tp_order_id:
-                #         logger.info(f"[INITIAL TP SET]: tp_order_id: {tp_order_id}")
-                #         state.setdefault("tp_orders", {})["TP1"] = tp_order_id
                 sl_price = state["stop_loss"]
                 logger.info(f"[INITIAL SL SET] {symbol} {direction} SL {sl_price}, Qty: {new_qty}")
                 sl_order_id = await place_tp_sl_order_async(symbol, tp_price=None, sl_price=sl_price,
@@ -175,7 +167,7 @@ async def handle_ws_message(message):
                 await update_position_state(symbol, direction, position_id, state)
 
             # New logic: if position qty increases after step > 0, update TP/SL
-            if position_event == "UPDATE" and new_qty > old_qty:
+            if position_event == "UPDATE" and new_qty > old_qty > 0:
                 for tp_label, order_id in state["tp_orders"].items():
                     step_index = int(tp_label.replace("TP", "")) - 1
                     tp_price = state["tps"][step_index]
@@ -186,15 +178,6 @@ async def handle_ws_message(message):
                 sl_order_id = state.get("sl_order_id")
                 sl_price = state["stop_loss"]
                 await update_sl_price(sl_order_id, direction, symbol, sl_price, new_qty)
-                # await modify_tp_sl_order_async(
-                #     direction,
-                #     symbol,
-                #     tp_price=tp_price,
-                #     sl_price=sl_price,
-                #     position_id=position_id,
-                #     tp_qty=tp_qty,
-                #     sl_qty=new_qty
-                # )
                 try:
                     position_margin = float(pos_event.get("margin"))
                     position_leverage = float(pos_event.get("leverage", 20))
@@ -207,7 +190,6 @@ async def handle_ws_message(message):
                     logger.warning(f"[STATE UPDATE ERROR on qty increase] {e}")
 
             if position_event == "CLOSE" and new_qty == 0:
-                # delete_position_state(symbol, direction, position_id)
                 realized_pnl = float(pos_event.get("realizedPNL"))
                 position_id = state.get("position_id")
                 try:
@@ -231,8 +213,6 @@ async def handle_ws_message(message):
                 event = tp_data.get("event")
                 status = tp_data.get("status")
                 tp_qty = tp_data.get("tpQty")
-                # trigger_price = float(tp_data.get("tpOrderPrice", 0))
-                # logger.info(f"[TP/SL EVENT]: trigger_price: {trigger_price}")
 
                 if event != "CLOSE" or status != "FILLED" or tp_qty is None:
                     # logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {tp_data} with status: {status}")
@@ -244,7 +224,6 @@ async def handle_ws_message(message):
                 position_id = tp_data.get("positionId")
                 tp_direction = tp_data.get("side", "BUY").upper()
                 position_direction = "SELL" if tp_direction == "BUY" else "BUY"
-                # direction = "BUY" if side == "LONG" else "SELL"
                 logger.info(f"[TPSL EVENT]: {tp_data}")
 
                 state = await get_or_create_symbol_direction_state(symbol, position_direction, position_id=position_id)
@@ -278,18 +257,8 @@ async def handle_ws_message(message):
                         logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
                 order_id = state.get("sl_order_id")
                 await update_sl_price(order_id, position_direction, symbol, new_sl, new_qty)
-                # if new_tp:
-                #     logger.info(f"[TP_SL CHANNEL] STEP {step} → {next_step} | New TP: {new_tp} SL: {new_sl}")
-                #     await update_sl_price(order_id,direction, symbol, new_sl, new_qty)
-                #     await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=new_tp, sl_price=new_sl,
-                #                                    position_id=position_id, tp_qty=tp_qty, sl_qty=new_qty)
-                # else:
-                #     logger.info(f"[TP_SL CHANNEL] STEP {step} → {next_step} | Final SL Only: {new_sl}")
-                #     await modify_tp_sl_order_async(direction, symbol=symbol, tp_price=None, sl_price=new_sl,
-                #                                    position_id=position_id, tp_qty=None, sl_qty=new_qty)
-
                 state["step"] = next_step
-                state["total_qty"] = new_qty
+                # state["total_qty"] = new_qty
                 await update_position_state(symbol, position_direction, position_id, state)
             except Exception as e:
                 logger.error(f"[TP_SL CHANNEL ERROR] {e}")
