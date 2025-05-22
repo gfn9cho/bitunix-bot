@@ -242,11 +242,12 @@ async def handle_ws_message(message):
 
                 symbol = tp_data.get("symbol")
                 position_id = tp_data.get("positionId")
-                direction = tp_data.get("side", "BUY").upper()
+                tp_direction = tp_data.get("side", "BUY").upper()
+                position_direction = "SELL" if tp_direction == "BUY" else "BUY"
                 # direction = "BUY" if side == "LONG" else "SELL"
                 logger.info(f"[TPSL EVENT]: {tp_data}")
 
-                state = await get_or_create_symbol_direction_state(symbol, direction, position_id=position_id)
+                state = await get_or_create_symbol_direction_state(symbol, position_direction, position_id=position_id)
                 tps = state.get("tps", [])
                 step = state.get("step", 0)
                 old_qty = float(state.get("total_qty", 0))
@@ -258,7 +259,7 @@ async def handle_ws_message(message):
                 logger.info(f"[TP SL INFO]:{state}")
                 try:
                     if step == 0 and entry != 0:
-                        if direction == "BUY":
+                        if position_direction == "BUY":
                             new_sl = entry - (3 / 7) * ((trigger_price - entry) * 0.2)
                         else:
                             new_sl = entry + (3 / 7) * ((entry - trigger_price) * 0.2)
@@ -268,15 +269,15 @@ async def handle_ws_message(message):
                     logger.info(f"[TP LEVEL 1 Beakeven calculation error]")
                     new_sl = float(state.get("entry_price")) if step == 0 else tps[max(step - 1, 0)]
 
-                logger.info(f"[BREAKEVEN SL] {symbol} {direction} step={step} → SL={new_sl}")
+                logger.info(f"[BREAKEVEN SL] {symbol} {position_direction} step={step} → SL={new_sl}")
 
                 if step == 0:
                     try:
-                        await cancel_all_new_orders(symbol, direction)
+                        await cancel_all_new_orders(symbol, position_direction)
                     except Exception as cancel_err:
                         logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
                 order_id = state.get("sl_order_id")
-                await update_sl_price(order_id,direction, symbol, new_sl, new_qty)
+                await update_sl_price(order_id, position_direction, symbol, new_sl, new_qty)
                 # if new_tp:
                 #     logger.info(f"[TP_SL CHANNEL] STEP {step} → {next_step} | New TP: {new_tp} SL: {new_sl}")
                 #     await update_sl_price(order_id,direction, symbol, new_sl, new_qty)
@@ -289,7 +290,7 @@ async def handle_ws_message(message):
 
                 state["step"] = next_step
                 state["total_qty"] = new_qty
-                await update_position_state(symbol, direction, position_id, state)
+                await update_position_state(symbol, position_direction, position_id, state)
             except Exception as e:
                 logger.error(f"[TP_SL CHANNEL ERROR] {e}")
 
