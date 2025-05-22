@@ -7,6 +7,7 @@ import requests
 from modules.logger_config import logger
 from modules.loss_tracking import log_false_signal
 from modules.config import BASE_URL
+# from modules.market_filters import get_funding_rate, get_open_interest, get_open_interest_trend
 
 
 async def get_latest_mark_price(symbol: str) -> float:
@@ -66,7 +67,7 @@ def get_previous_bar_close(current_time: datetime, interval: str) -> datetime:
     floored_hour = floored_minutes // 60
     floored_minute = floored_minutes % 60
     floored_time = current_time.replace(hour=floored_hour, minute=floored_minute)
-    return floored_time
+    return floored_time - datetime.timedelta(minutes=mins)
 
 
 def get_latest_close_price(symbol: str, interval: str, reference_time: datetime = None) -> float:
@@ -133,14 +134,34 @@ async def is_false_signal(symbol: str, entry_price: float, direction: str, inter
 async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str,
                                       signal_time: datetime.datetime, callback):
     try:
+        # Step 1: Check for flase signal
         is_false = await is_false_signal(symbol, entry_price, direction, interval, signal_time)
         if is_false:
             logger.warning(f"❌ False signal ignored: {symbol} {direction} at {entry_price}")
             log_false_signal(symbol, direction, entry_price, interval, "false_signal", signal_time)
             # delete_position_state(symbol, direction, True, None)
             return
-
+        # Step 2: Check for volume spike
+        # if await is_volume_spike(symbol, interval):
+        #     logger.warning(f"[VOLUME SPIKE] Signal rejected due to abnormal volume on {symbol}")
+        #     return
+        #
+        # # Step 3: Check funding rate
+        # funding = await get_funding_rate(symbol)
+        # if direction == "BUY" and funding > 0.001:
+        #     logger.warning(f"[FUNDING] Skipping BUY due to positive funding: {funding}")
+        #     return
+        # if direction == "SELL" and funding < -0.001:
+        #     logger.warning(f"[FUNDING] Skipping SELL due to negative funding: {funding}")
+        #     return
+        #
+        # # Step 4: Check open interest
+        # if not await is_open_interest_supportive(symbol, direction, interval):
+        #     logger.warning(f"[OI FILTER] Skipping signal: OI not supportive for {symbol} {direction}")
+        #     return
         logger.info(f"✅ Valid signal confirmed: {symbol} {direction} at {entry_price}")
+
+        #step 5: Process trades
         await callback()
     except Exception as e:
         logger.error(f"[SIGNAL VALIDATION ERROR] {symbol} {direction}: {e}")
@@ -154,7 +175,7 @@ def get_next_bar_close(current_time: datetime.datetime, interval: str) -> dateti
     mins = minute_intervals.get(interval.lower(), 1)
     rounded_minute = (current_time.minute // mins + 1) * mins
     return current_time.replace(second=0, microsecond=0) + datetime.timedelta(
-        minutes=(rounded_minute - current_time.minute))
+     minutes=(rounded_minute - current_time.minute))
 
 # print("SOLUSDT 1M close:", get_latest_close_price("SOLUSDT", "1m"))
 # false_sginal = is_false_signal("SOLUSDT", 176.90, "BUY", "1m", datetime.datetime.utcnow())
