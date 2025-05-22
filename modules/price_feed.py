@@ -124,10 +124,10 @@ async def is_false_signal(symbol: str, entry_price: float, direction: str, inter
         close_price = get_latest_close_price(symbol, interval, dt)
 
     buffer = entry_price * buffer_pct
-    if direction == "BUY" and entry_price < (close_price - buffer):
+    if direction == "BUY" and entry_price <= close_price:
         logger.info(f"[VALID SIGNAL CHECK]: entry_price: {entry_price} close_price: {close_price} buffer: {buffer}")
         return True
-    if direction == "SELL" and entry_price > (close_price + buffer):
+    if direction == "SELL" and entry_price >= (close_price + buffer):
         logger.info(f"[VALID SIGNAL CHECK]: entry_price: {entry_price} close_price: {close_price} buffer: {buffer}")
         return True
     return False
