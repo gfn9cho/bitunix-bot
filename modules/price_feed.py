@@ -108,7 +108,7 @@ def get_latest_close_price(symbol: str, interval: str, reference_time: datetime 
 
 
 async def is_false_signal(symbol: str, entry_price: float, direction: str, interval: str,
-                          signal_time: datetime.datetime, buffer_pct: float = 0.02) -> bool:
+                          signal_time: datetime.datetime, buffer_pct: float = 0.01) -> bool:
     if direction == "SELL":
         bar_close_time = get_next_bar_close(signal_time, interval)
         wait_seconds = (bar_close_time - datetime.datetime.utcnow()).total_seconds()
