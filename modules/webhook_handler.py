@@ -8,7 +8,8 @@ from modules.logger_config import logger, error_logger
 from modules.loss_tracking import is_daily_loss_limit_exceeded
 from modules.price_feed import validate_and_process_signal
 # from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
-from modules.redis_state_manager import get_or_create_symbol_direction_state, update_position_state, delete_position_state
+from modules.redis_state_manager import get_or_create_symbol_direction_state, \
+                                        update_position_state, delete_position_state
 from modules.utils import parse_signal, place_order, is_duplicate_signal, maybe_reverse_position
 from modules.signal_limiter import should_accept_signal
 
