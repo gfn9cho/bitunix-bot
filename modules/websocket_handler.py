@@ -116,12 +116,14 @@ async def handle_ws_message(message):
             position_event = pos_event.get("event")
             new_qty = float(pos_event.get("qty", 0))
             position_id = str(pos_event.get("positionId"))
-            state = await get_or_create_symbol_direction_state(symbol, direction, position_id=position_id)
+            state = await get_or_create_symbol_direction_state(symbol, direction, position_id=position_id) \
+                if position_event != "CLOSE" else {}
             # logger.info(f"State inside position: {state}")
             # Weighted average entry price update
             old_qty = state.get("total_qty", 0)
             if new_qty != old_qty:
-                logger.info(f"[WEBSOCKET_HANDLER]: position_event: {position_event} new_qty: {new_qty} old_qty: {old_qty}")
+                logger.info(
+                    f"[WEBSOCKET_HANDLER]: position_event: {position_event} new_qty: {new_qty} old_qty: {old_qty}")
             # Extract and normalize time info
             ctime_str = pos_event.get("ctime")
             tps = state.get("tps", [])
@@ -154,7 +156,7 @@ async def handle_ws_message(message):
                     tp_price = tps[i]
                     tp_ratio = TP_DISTRIBUTION[i]
                     tp_qty = round(new_qty * tp_ratio, 3)
-                    logger.info(f"[INITIAL TP/SL SET] {symbol} {direction} TP{i+1} {tp_price}, tpQty: {tp_qty}")
+                    logger.info(f"[INITIAL TP/SL SET] {symbol} {direction} TP{i + 1} {tp_price}, tpQty: {tp_qty}")
                     if tp_price:
                         order_id = await place_tp_sl_order_async(symbol, tp_price=tp_price, sl_price=None,
                                                                  position_id=position_id, tp_qty=tp_qty, qty=new_qty)
@@ -191,7 +193,7 @@ async def handle_ws_message(message):
 
             if position_event == "CLOSE" and new_qty == 0:
                 realized_pnl = float(pos_event.get("realizedPNL"))
-                position_id = state.get("position_id")
+                position_id = pos_event.get("positionId")
                 try:
                     await cancel_all_new_orders(symbol, direction)
                     await update_position_state(symbol, direction, position_id, {
