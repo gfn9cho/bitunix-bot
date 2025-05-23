@@ -1,13 +1,139 @@
 import asyncio
-import datetime
+from datetime import datetime, timedelta
 
 import httpx
-import requests
 
+from modules.config import BASE_URL
 from modules.logger_config import logger
 from modules.loss_tracking import log_false_signal
-from modules.config import BASE_URL
+
 # from modules.market_filters import get_funding_rate, get_open_interest, get_open_interest_trend
+
+BITUNIX_BASE_URL = "https://fapi.bitunix.com"
+
+# Interval mapping
+INTERVAL_MINUTES = {
+    "1m": 1, "5m": 5, "15m": 15,
+    "30m": 30, "1h": 60, "2h": 120, "4h": 240, "1d": 1440
+}
+
+
+# --- Time utilities ---
+def get_previous_bar_close(current_time: datetime, interval: str) -> datetime:
+    mins = INTERVAL_MINUTES.get(interval.lower(), 1)
+    current_time = current_time.replace(second=0, microsecond=0)
+    total_minutes = current_time.hour * 60 + current_time.minute
+    floored_minutes = (total_minutes // mins) * mins
+    floored_hour = floored_minutes // 60
+    floored_minute = floored_minutes % 60
+    floored_time = current_time.replace(hour=floored_hour, minute=floored_minute)
+    return floored_time - timedelta(minutes=mins)
+
+
+def get_next_bar_close(current_time: datetime, interval: str) -> datetime:
+    mins = INTERVAL_MINUTES.get(interval.lower(), 1)
+    current_time = current_time.replace(second=0, microsecond=0)
+    total_minutes = current_time.hour * 60 + current_time.minute
+    next_bar_minutes = ((total_minutes // mins) + 1) * mins
+    next_hour = next_bar_minutes // 60
+    next_minute = next_bar_minutes % 60
+    return current_time.replace(hour=next_hour % 24, minute=next_minute)
+
+
+def get_bar_start_for_close(close_time: datetime, interval_min: int) -> int:
+    bar_start = close_time - timedelta(minutes=interval_min)
+    return int(bar_start.timestamp() * 1000)
+
+
+# --- Candle fetchers ---
+async def get_previous_candle_close_price(symbol: str, interval: str, reference_time: datetime,
+                                          max_retries: int = 3) -> float:
+    actual_interval = "1m" if interval == "3m" else interval
+    url = f"{BITUNIX_BASE_URL}/api/v1/futures/market/kline"
+    expected_ts = int(get_previous_bar_close(reference_time, actual_interval).timestamp() * 1000)
+
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                params = {
+                    "symbol": symbol.upper(),
+                    "interval": actual_interval.lower(),
+                    "limit": 2,
+                    "type": "MARK_PRICE"
+                }
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                candles = response.json().get("data", [])
+                for candle in candles:
+                    if int(candle.get("time", 0)) == expected_ts:
+                        logger.info(f"[MATCHED BUY CANDLE]: {candle}")
+                        return float(candle.get("close"))
+                logger.warning(
+                    f"[BUY CANDLE NOT FOUND] Expected {expected_ts}, Got {[int(c['time']) for c in candles]}")
+                await asyncio.sleep(1)
+        except Exception as e:
+            logger.error(f"[BUY CANDLE FETCH ERROR] Attempt {attempt + 1}: {e}")
+            await asyncio.sleep(1)
+
+    raise RuntimeError(f"Failed to fetch matching BUY candle close price for {symbol} after {max_retries} retries")
+
+
+async def get_latest_close_price_current(symbol: str, interval: str, expected_ts: int, max_retries: int = 3) -> float:
+    actual_interval = "1m" if interval == "3m" else interval
+    url = f"{BITUNIX_BASE_URL}/api/v1/futures/market/kline"
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                params = {
+                    "symbol": symbol.upper(),
+                    "interval": actual_interval.lower(),
+                    "limit": 1
+                }
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json().get("data", [])
+                if not data:
+                    raise ValueError("No candle data returned")
+                candle = data[0]
+                candle_ts = int(candle.get("time", 0))
+                if candle_ts == expected_ts:
+                    logger.info(f"[LATEST CANDLE MATCHED]: {candle}")
+                    return float(candle.get("close"))
+                logger.warning(f"[CANDLE MISMATCH] Expected {expected_ts}, Got {candle_ts}. Retrying...")
+                await asyncio.sleep(1)
+        except Exception as e:
+            logger.error(f"[SELL CANDLE FETCH ERROR] Attempt {attempt + 1}: {e}")
+            await asyncio.sleep(1)
+
+    raise RuntimeError(f"Failed to fetch matching SELL candle close price for {symbol} after {max_retries} retries")
+
+
+# --- Signal Validator ---
+async def is_false_signal(symbol: str, entry_price: float, direction: str, interval: str,
+                          signal_time: datetime, buffer_pct: float = 0.005) -> bool:
+    if direction == "SELL":
+        bar_close_time = get_next_bar_close(signal_time, interval)
+        wait_seconds = (bar_close_time - datetime.utcnow()).total_seconds()
+        if wait_seconds > 0:
+            logger.info(f"Waiting {wait_seconds:.2f} seconds for bar to close...")
+            await asyncio.sleep(wait_seconds)
+        actual_interval = "1m" if interval == "3m" else interval
+        interval_min = INTERVAL_MINUTES.get(actual_interval.lower(), 1)
+        expected_ts = get_bar_start_for_close(bar_close_time, interval_min)
+        close_price = await get_latest_close_price_current(symbol, interval, expected_ts)
+    else:  # BUY
+        close_price = await get_previous_candle_close_price(symbol, interval, signal_time)
+
+    buffer = close_price * buffer_pct
+    if direction == "BUY" and entry_price <= (close_price + buffer):
+        logger.info(
+            f"[VALID SIGNAL CHECK]: BUY | entry_price: {entry_price} close_price: {close_price} buffer: {buffer}")
+        return False
+    if direction == "SELL" and entry_price >= close_price:
+        logger.info(f"[VALID SIGNAL CHECK]: SELL | entry_price: {entry_price} close_price: {close_price}")
+        return False
+
+    return True
 
 
 async def get_latest_mark_price(symbol: str) -> float:
@@ -30,111 +156,8 @@ async def get_latest_mark_price(symbol: str) -> float:
         raise RuntimeError(f"Failed to fetch mark price for {symbol}: {e}")
 
 
-def get_latest_close_price_current(symbol: str, interval: str) -> float:
-    url = f"{BASE_URL}/api/v1/futures/market/kline"
-    params = {
-        "symbol": symbol.upper(),
-        "interval": interval.lower(),  # Bitunix uses '1M', '3M', etc.
-        "limit": 1
-    }
-    try:
-        response = requests.get(url, params=params)
-        logger.info(f"{response}")
-        logger.info(f"{response.json()}")
-        response.raise_for_status()
-        candles = response.json().get("data", [])
-        if not candles:
-            raise ValueError("No candle data returned")
-
-        # Bitunix format: [timestamp, open, high, low, close, volume, turnover]
-        latest_candle = candles[0]
-        logger.info(f"[LATEST CANDLE]: {latest_candle}")
-        close_price = float(latest_candle.get("close"))
-        return close_price
-    except Exception as e:
-        raise RuntimeError(f"Failed to fetch close price for {symbol} from Bitunix: {e}")
-
-
-def get_previous_bar_close(current_time: datetime, interval: str) -> datetime:
-    minute_intervals = {
-        "1m": 1, "3m": 3, "5m": 5, "15m": 15,
-        "30m": 30, "1h": 60, "2h": 120, "4h": 240, "1d": 1440
-    }
-    mins = minute_intervals.get(interval.lower(), 1)
-    current_time = current_time.replace(second=0, microsecond=0)
-    total_minutes = current_time.hour * 60 + current_time.minute
-    floored_minutes = (total_minutes // mins) * mins
-    floored_hour = floored_minutes // 60
-    floored_minute = floored_minutes % 60
-    floored_time = current_time.replace(hour=floored_hour, minute=floored_minute)
-    return floored_time - datetime.timedelta(minutes=mins)
-
-
-def get_latest_close_price(symbol: str, interval: str, reference_time: datetime = None) -> float:
-    url = f"{BASE_URL}/api/v1/futures/market/kline"
-    params = {
-        "symbol": symbol.upper(),
-        "interval": interval.lower(),
-        "limit": 2 if reference_time else 1,
-        "type": "MARK_PRICE"
-    }
-    try:
-        response = requests.get(url, params=params)
-        logger.info(f"{response}")
-        data = response.json()
-        logger.info(f"{data}")
-        response.raise_for_status()
-        candles = data.get("data", [])
-        if not candles:
-            raise ValueError("No candle data returned")
-        if reference_time:
-            previous_close_time = get_previous_bar_close(reference_time, interval)
-            for candle in candles:
-                candle_time = datetime.datetime.utcfromtimestamp(int(candle.get("time")) / 1000)
-                if candle_time == previous_close_time:
-                    logger.info(f"[MATCHED CANDLE]: {candle}")
-                    return float(candle.get("close"))
-            logger.warning(
-                f"[CANDLE NOT FOUND]: {symbol} Looking for {previous_close_time}, got {[datetime.datetime.utcfromtimestamp(int(c['time']) / 1000) for c in candles]}")
-
-            raise ValueError("Matching candle not found for reference time")
-
-        latest_candle = candles[-1]
-        logger.info(f"[LATEST CANDLE]: {latest_candle}")
-        return float(latest_candle.get("close"))
-
-    except Exception as e:
-        raise RuntimeError(f"Failed to fetch close price for {symbol} from Bitunix: {e}")
-
-
-async def is_false_signal(symbol: str, entry_price: float, direction: str, interval: str,
-                          signal_time: datetime.datetime, buffer_pct: float = 0.005) -> bool:
-    if direction == "SELL":
-        bar_close_time = get_next_bar_close(signal_time, interval)
-        wait_seconds = (bar_close_time - datetime.datetime.utcnow()).total_seconds()
-        if wait_seconds > 0:
-            logger.info(f"Waiting {wait_seconds:.2f} seconds for bar to close...")
-            await asyncio.sleep(wait_seconds)
-        close_price = get_latest_close_price_current(symbol, interval)
-    else:
-        if signal_time.second == 0:
-            dt = signal_time + datetime.timedelta(seconds=1)
-        else:
-            dt = signal_time
-        close_price = get_latest_close_price(symbol, interval, dt)
-
-    buffer = close_price * buffer_pct
-    if direction == "BUY" and entry_price <= (close_price + buffer):
-        logger.info(f"[VALID SIGNAL CHECK]: entry_price: {entry_price} close_price: {close_price} buffer: {buffer}")
-        return False
-    if direction == "SELL" and entry_price >= close_price:
-        logger.info(f"[VALID SIGNAL CHECK]: entry_price: {entry_price} close_price: {close_price} buffer: {buffer}")
-        return False
-    return True
-
-
 async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str,
-                                      signal_time: datetime.datetime, callback):
+                                      signal_time: datetime, callback):
     try:
         # Step 1: Check for false signal
         is_false = await is_false_signal(symbol, entry_price, direction, interval, signal_time)
@@ -163,21 +186,11 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
         #     return
         logger.info(f"✅ Valid signal confirmed: {symbol} {direction} at {entry_price}")
 
-        #step 5: Process trades
+        # step 5: Process trades
         await callback()
     except Exception as e:
         logger.error(f"[SIGNAL VALIDATION ERROR] {symbol} {direction}: {e}")
 
-
-def get_next_bar_close(current_time: datetime.datetime, interval: str) -> datetime.datetime:
-    minute_intervals = {
-        "1m": 1, "3m": 3, "5m": 5, "15m": 15,
-        "30m": 30, "1h": 60, "2h": 120, "4h": 240, "1d": 1440
-    }
-    mins = minute_intervals.get(interval.lower(), 1)
-    rounded_minute = (current_time.minute // mins + 1) * mins
-    return current_time.replace(second=0, microsecond=0) + datetime.timedelta(
-     minutes=(rounded_minute - current_time.minute))
 
 # print("SOLUSDT 1M close:", get_latest_close_price("SOLUSDT", "1m"))
 # false_sginal = is_false_signal("SOLUSDT", 176.90, "BUY", "1m", datetime.datetime.utcnow())
