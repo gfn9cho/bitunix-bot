@@ -68,8 +68,11 @@ async def get_previous_candle_close_price(symbol: str, interval: str, reference_
                     if int(candle.get("time", 0)) == expected_ts:
                         logger.info(f"[MATCHED BUY CANDLE]: {candle}")
                         return float(candle.get("close"))
-                logger.warning(
-                    f"[BUY CANDLE NOT FOUND] Expected {expected_ts}, Got {[int(c['time']) for c in candles]}")
+                    elif attempt == 2:
+                        mark_price = get_latest_mark_price(symbol)
+                        return mark_price if mark_price else \
+                            logger.warning(
+                                f"[BUY CANDLE NOT FOUND] Expected {expected_ts}, Got {[int(c['time']) for c in candles]}")
                 await asyncio.sleep(1)
         except Exception as e:
             logger.error(f"[BUY CANDLE FETCH ERROR] Attempt {attempt + 1}: {e}")
@@ -99,7 +102,10 @@ async def get_latest_close_price_current(symbol: str, interval: str, expected_ts
                 if candle_ts == expected_ts:
                     logger.info(f"[LATEST CANDLE MATCHED]: {candle}")
                     return float(candle.get("close"))
-                logger.warning(f"[CANDLE MISMATCH] Expected {expected_ts}, Got {candle_ts}. Retrying...")
+                elif attempt == 2:
+                    mark_price = get_latest_mark_price(symbol)
+                    return mark_price if mark_price else \
+                        logger.warning(f"[CANDLE MISMATCH] Expected {expected_ts}, Got {candle_ts}. Retrying...")
                 await asyncio.sleep(1)
         except Exception as e:
             logger.error(f"[SELL CANDLE FETCH ERROR] Attempt {attempt + 1}: {e}")
