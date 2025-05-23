@@ -91,8 +91,8 @@ async def webhook_handler(symbol):
                     f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, \
                         price={entry}, qty={market_qty}")
                 retries = 3
+                market_qty_revised = await maybe_reverse_position(symbol, direction, market_qty)
                 for attempt in range(retries):
-                    market_qty_revised = await maybe_reverse_position(symbol, direction, market_qty)
                     logger.info(f"[TEST TRACE] Reverse? {state}, Revised Qty: {market_qty_revised}")
                     response = await place_order(
                         symbol=symbol,

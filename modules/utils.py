@@ -356,7 +356,8 @@ async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float
         # Optional: cancel any remaining limit/TP/SL orders
         # await cancel_all_new_orders(symbol, opposite_direction, context="reversal")
         await close_all_positions(symbol)
-        # Update old state as CLOSED
+        await close_all_positions(symbol)
+    # Update old state as CLOSED
         await update_position_state(symbol, opposite_direction, opposite_position_id, {"status": "CLOSED"})
         await delete_position_state(symbol, opposite_direction, opposite_position_id)
 
