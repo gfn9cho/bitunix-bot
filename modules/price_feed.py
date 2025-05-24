@@ -83,7 +83,7 @@ async def get_previous_candle_close_price(symbol: str, interval: str, reference_
 
 
 async def get_latest_close_price_current(symbol: str, interval: str, expected_ts: int, max_retries: int = 3) -> float:
-    actual_interval = "1m" if interval == "3m" else interval
+    actual_interval = "1m" if interval == "3m" or interval.startswith("3m") else interval
     url = f"{BITUNIX_BASE_URL}/api/v1/futures/market/kline"
     for attempt in range(max_retries):
         try:
