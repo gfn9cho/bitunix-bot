@@ -40,7 +40,7 @@ async def webhook_handler(symbol):
             parts = symbol_qty.split("_")
             symbol = parts[0]
             override_qty = float(parts[1]) if len(parts) > 1 else None
-            interval = parts[2] if len(parts) > 2 else "1m"
+            interval = parts[2].lower() if len(parts) > 2 else "1m"
         else:
             symbol = symbol_qty
             override_qty = None

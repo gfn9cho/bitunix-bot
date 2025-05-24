@@ -20,7 +20,7 @@ INTERVAL_MINUTES = {
 
 # --- Time utilities ---
 def get_previous_bar_close(current_time: datetime, interval: str) -> datetime:
-    mins = INTERVAL_MINUTES.get(interval.lower(), 1)
+    mins = INTERVAL_MINUTES.get(interval, 1)
     current_time = current_time.replace(second=0, microsecond=0)
     total_minutes = current_time.hour * 60 + current_time.minute
     floored_minutes = (total_minutes // mins) * mins
@@ -31,7 +31,7 @@ def get_previous_bar_close(current_time: datetime, interval: str) -> datetime:
 
 
 def get_next_bar_close(current_time: datetime, interval: str) -> datetime:
-    mins = INTERVAL_MINUTES.get(interval.lower(), 1)
+    mins = INTERVAL_MINUTES.get(interval, 1)
     current_time = current_time.replace(second=0, microsecond=0)
     total_minutes = current_time.hour * 60 + current_time.minute
     next_bar_minutes = ((total_minutes // mins) + 1) * mins
@@ -57,7 +57,7 @@ async def get_previous_candle_close_price(symbol: str, interval: str, reference_
             async with httpx.AsyncClient(timeout=5.0) as client:
                 params = {
                     "symbol": symbol.upper(),
-                    "interval": actual_interval.lower(),
+                    "interval": actual_interval,
                     "limit": 2,
                     "type": "MARK_PRICE"
                 }
@@ -83,14 +83,14 @@ async def get_previous_candle_close_price(symbol: str, interval: str, reference_
 
 
 async def get_latest_close_price_current(symbol: str, interval: str, expected_ts: int, max_retries: int = 3) -> float:
-    actual_interval = "1m" if interval == "3m" or interval.startswith("3m") else interval
+    actual_interval = "1m" if interval == "3m" else interval
     url = f"{BITUNIX_BASE_URL}/api/v1/futures/market/kline"
     for attempt in range(max_retries):
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 params = {
                     "symbol": symbol.upper(),
-                    "interval": actual_interval.lower(),
+                    "interval": actual_interval,
                     "limit": 1
                 }
                 response = await client.get(url, params=params)
@@ -127,7 +127,7 @@ async def is_false_signal(symbol: str, entry_price: float, direction: str, inter
             logger.info(f"Waiting {wait_seconds:.2f} seconds for bar to close...")
             await asyncio.sleep(wait_seconds)
         actual_interval = "1m" if interval == "3m" else interval
-        interval_min = INTERVAL_MINUTES.get(actual_interval.lower(), 1)
+        interval_min = INTERVAL_MINUTES.get(actual_interval, 1)
         expected_ts = get_bar_start_for_close(bar_close_time, interval_min)
         close_price = await get_latest_close_price_current(symbol, interval, expected_ts)
     else:  # BUY
