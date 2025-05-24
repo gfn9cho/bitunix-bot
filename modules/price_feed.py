@@ -120,6 +120,7 @@ async def get_latest_close_price_current(symbol: str, interval: str, expected_ts
 async def is_false_signal(symbol: str, entry_price: float, direction: str, interval: str,
                           signal_time: datetime, buffer_pct: float = 0.005) -> bool:
     if direction == "SELL":
+        logger.info(f"[Validate Signal]: {symbol} {direction} {interval}")
         bar_close_time = get_next_bar_close(signal_time, interval)
         wait_seconds = (bar_close_time - datetime.utcnow()).total_seconds()
         if wait_seconds > 0:
@@ -130,7 +131,7 @@ async def is_false_signal(symbol: str, entry_price: float, direction: str, inter
         expected_ts = get_bar_start_for_close(bar_close_time, interval_min)
         close_price = await get_latest_close_price_current(symbol, interval, expected_ts)
     else:  # BUY
-        logger.info(f"[Validate Signal]: {symbol} {interval}")
+        logger.info(f"[Validate Signal]: {symbol} {direction} {interval}")
         if interval == "3m":
             bar_close_time = get_next_bar_close(signal_time, interval)
             wait_seconds = (bar_close_time - datetime.utcnow()).total_seconds()
