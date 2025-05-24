@@ -68,11 +68,12 @@ async def get_previous_candle_close_price(symbol: str, interval: str, reference_
                     if int(candle.get("time", 0)) == expected_ts:
                         logger.info(f"[MATCHED BUY CANDLE]: {candle}")
                         return float(candle.get("close"))
-                    elif attempt == 2:
-                        mark_price = get_latest_mark_price(symbol)
-                        return mark_price if mark_price else \
-                            logger.warning(
-                                f"[BUY CANDLE NOT FOUND] Expected {expected_ts}, Got {[int(c['time']) for c in candles]}")
+
+                if attempt == 2:
+                    mark_price = get_latest_mark_price(symbol)
+                    return mark_price if mark_price else \
+                        logger.warning(
+                            f"[BUY CANDLE NOT FOUND] Expected {expected_ts}, Got {[int(c['time']) for c in candles]}")
                 await asyncio.sleep(1)
         except Exception as e:
             logger.error(f"[BUY CANDLE FETCH ERROR] Attempt {attempt + 1}: {e}")
@@ -102,7 +103,8 @@ async def get_latest_close_price_current(symbol: str, interval: str, expected_ts
                 if candle_ts == expected_ts:
                     logger.info(f"[LATEST CANDLE MATCHED]: {candle}")
                     return float(candle.get("close"))
-                elif attempt == 2:
+
+                if attempt == 2:
                     mark_price = get_latest_mark_price(symbol)
                     return mark_price if mark_price else \
                         logger.warning(f"[CANDLE MISMATCH] Expected {expected_ts}, Got {candle_ts}. Retrying...")
@@ -128,6 +130,13 @@ async def is_false_signal(symbol: str, entry_price: float, direction: str, inter
         expected_ts = get_bar_start_for_close(bar_close_time, interval_min)
         close_price = await get_latest_close_price_current(symbol, interval, expected_ts)
     else:  # BUY
+        logger.info(f"[Validate Signal]: {symbol} {interval}")
+        if interval == "3m":
+            bar_close_time = get_next_bar_close(signal_time, interval)
+            wait_seconds = (bar_close_time - datetime.utcnow()).total_seconds()
+            if wait_seconds > 0:
+                logger.info(f"Waiting {wait_seconds:.2f} seconds for bar to close...")
+                await asyncio.sleep(wait_seconds)
         close_price = await get_previous_candle_close_price(symbol, interval, signal_time)
 
     buffer = close_price * buffer_pct
