@@ -79,7 +79,7 @@ async def webhook_handler(symbol):
                 state["step"] = 0
                 state["qty_distribution"] = [0.7, 0.1, 0.1, 0.1]
                 state["stop_loss"] = new_signal_sl
-                state["created_at"] = datetime.utcnow()
+                state["created_at"] = datetime.utcnow().isoformat()
                 state["interval"] = interval
 
                 zone_start, zone_bottom = parsed["accumulation_zone"]
