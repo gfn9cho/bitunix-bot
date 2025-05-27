@@ -160,8 +160,10 @@ async def get_high_conviction_score(symbol: str, direction: str, interval: str =
 
         # Fetch funding rate
         funding_url = f"{BASE_URL}/api/v1/futures/market/funding_rate"
-        funding_resp = await client.get(funding_url, params={"symbol": symbol.upper()})
-        funding = float(funding_resp.json().get("data", {}).get("fundingRate", 0))
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            funding_resp = await client.get(funding_url, params={"symbol": symbol.upper()})
+            funding_resp.raise_for_status()
+            funding = float(funding_resp.json().get("data", {}).get("fundingRate", 0))
 
         funding_check = (funding > 0 and direction == "BUY") or (funding < 0 and direction == "SELL")
 
