@@ -10,7 +10,7 @@ from modules.price_feed import validate_and_process_signal
 # from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.redis_state_manager import get_or_create_symbol_direction_state, \
                                         update_position_state, delete_position_state
-from modules.utils import parse_signal, place_order, is_duplicate_signal, maybe_reverse_position
+from modules.utils import parse_signal, place_order, is_duplicate_signal, maybe_reverse_position, evaluate_signal_received
 from modules.signal_limiter import should_accept_signal
 
 
@@ -79,6 +79,8 @@ async def webhook_handler(symbol):
                 state["step"] = 0
                 state["qty_distribution"] = [0.7, 0.1, 0.1, 0.1]
                 state["stop_loss"] = new_signal_sl
+                state["created_at"] = datetime.utcnow()
+                state["interval"] = interval
 
                 zone_start, zone_bottom = parsed["accumulation_zone"]
                 logger.info(f"[ACC ZONES]: {zone_start}: {zone_bottom}")
@@ -91,7 +93,8 @@ async def webhook_handler(symbol):
                     f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, \
                         price={entry}, qty={market_qty}")
                 retries = 3
-                market_qty_revised = await maybe_reverse_position(symbol, direction, market_qty)
+                market_qty_revised = await evaluate_signal_received(symbol, direction, market_qty,
+                                                                    interval)
                 for attempt in range(retries):
                     logger.info(f"[TEST TRACE] Reverse? {state}, Revised Qty: {market_qty_revised}")
                     response = await place_order(

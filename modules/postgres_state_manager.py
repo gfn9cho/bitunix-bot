@@ -2,17 +2,14 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from modules.config import DB_CONFIG, DEFAULT_STATE
 from modules.logger_config import logger
+from datetime import datetime
 
 
 def get_db_conn():
     return psycopg2.connect(**DB_CONFIG)
 
 
-def ensure_table():
-    with get_db_conn() as conn:
-        with conn.cursor() as cur:
-            logger.info("Ensuring position_state table exists")
-            cur.execute("""
+create_statements = ["""
                 CREATE TABLE IF NOT EXISTS position_state (
                     symbol TEXT NOT NULL,
                     direction TEXT NOT NULL CHECK (direction IN ('BUY', 'SELL')),
@@ -25,8 +22,31 @@ def ensure_table():
                     qty_distribution FLOAT[],
                     status TEXT,
                     UNIQUE (symbol, direction, position_id )
-                );
-            """)
+                )""", """CREATE TABLE IF NOT EXISTS signal_log (
+                    id SERIAL PRIMARY KEY,
+                    symbol TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    interval TEXT,
+                    entry_price FLOAT,
+                    conviction_score FLOAT,
+                    funding_rate FLOAT,
+                    oi_trend FLOAT[],
+                    price_trend FLOAT[],
+                    volume_trend FLOAT[],
+                    volume_spike_ratio FLOAT,
+                    is_false_signal BOOLEAN,
+                    was_executed BOOLEAN,
+                    signal_time TIMESTAMP DEFAULT NOW(),
+                    candle_close_price FLOAT
+                )"""]
+
+
+def ensure_table():
+    with get_db_conn() as conn:
+        with conn.cursor() as cur:
+            logger.info("Ensuring position_state table exists")
+            for stmts in create_statements:
+                cur.execute(stmts)
             conn.commit()
 
 
@@ -82,7 +102,8 @@ def update_position_state(symbol, direction, position_id, updated_fields: dict):
 
     # Allow position_id to be updated only if it's provided in the updated_fields explicitly
     include_position_id = "position_id" in updated_fields and updated_fields["position_id"]
-    columns = [col for col in updated_fields.keys() if col not in ("symbol", "direction", "sl_order_id", "tp_orders")]
+    columns = [col for col in updated_fields.keys() if col not in ("symbol", "direction", "sl_order_id", "tp_orders",
+                                                                   "interval", "created_at")]
     values = [updated_fields[col] for col in columns]
 
     if not columns:
@@ -133,6 +154,35 @@ def delete_position_state(symbol, direction, position_id=None):
                     DELETE FROM position_state WHERE symbol = %s AND direction = %s AND position_id=''
                 """, (symbol, direction))
             conn.commit()
+
+
+def log_signal_event(symbol: str, direction: str, interval: str, entry_price: float,
+                     close_price: float, conviction_score: float, funding_rate: float,
+                     oi_trend: list, price_trend: list, volume_trend: list,
+                     volume_spike_ratio: float, is_false_signal: bool, was_executed: bool,
+                     signal_time: datetime):
+    try:
+        with get_db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO signal_log (
+                        symbol, direction, interval, entry_price, close_price,
+                        conviction_score, funding_rate,
+                        oi_trend, price_trend, volume_trend,
+                        volume_spike_ratio, is_false_signal, was_executed,
+                        signal_time
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    symbol, direction, interval, entry_price, close_price,
+                    conviction_score, funding_rate,
+                    oi_trend, price_trend, volume_trend,
+                    volume_spike_ratio, is_false_signal, was_executed, signal_time
+                ))
+                conn.commit()
+                logger.info(f"[SIGNAL LOGGED] {symbol}-{direction} | Score: {conviction_score}")
+
+    except Exception as e:
+        logger.error(f"[SIGNAL LOGGING ERROR] {symbol}-{direction}: {e}")
 
 
 # Ensure table exists at import

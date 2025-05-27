@@ -1,9 +1,10 @@
 from modules.redis_client import get_redis
-from quart import Blueprint, jsonify
+from modules.orphan_position_checker import check_orphaned_positions
+from quart import Blueprint, jsonify, request
 import json
 
-
 admin_tools = Blueprint("admin_tools", __name__)
+
 
 @admin_tools.route("/debug/redis-keys", methods=["GET"])
 async def list_redis_keys():
@@ -41,6 +42,7 @@ async def cleanup_invalid_position_ids():
         "total_deleted": len(deleted)
     }), 200
 
+
 @admin_tools.route("/debug/redis-state/<path:key>", methods=["GET"])
 async def get_key_state(key):
     try:
@@ -57,11 +59,12 @@ async def get_key_state(key):
 async def update_key_state(key):
     try:
         r = get_redis()
-        new_state = await r.get_json()
+        new_state = await request.get_json()
         await r.set(key, json.dumps(new_state))
         return jsonify({"status": "updated", "key": key}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @admin_tools.route("/debug/redis-delete/<path:key>", methods=["DELETE"])
 async def delete_key(key):
@@ -74,3 +77,8 @@ async def delete_key(key):
             return jsonify({"status": "not found", "key": key}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@admin_tools.route("/position_recon", methods=["GET"])
+async def run_orphan_check():
+    """Sync check to run orphan recovery manually from CLI or admin UI"""
+    await check_orphaned_positions()

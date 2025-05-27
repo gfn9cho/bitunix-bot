@@ -6,6 +6,8 @@ import httpx
 from modules.config import BASE_URL
 from modules.logger_config import logger
 from modules.loss_tracking import log_false_signal
+from modules.market_filters import get_high_conviction_score
+from modules.redis_state_manager import record_signal_log
 
 # from modules.market_filters import get_funding_rate, get_open_interest, get_open_interest_trend
 
@@ -118,7 +120,7 @@ async def get_latest_close_price_current(symbol: str, interval: str, expected_ts
 
 # --- Signal Validator ---
 async def is_false_signal(symbol: str, entry_price: float, direction: str, interval: str,
-                          signal_time: datetime, buffer_pct: float = 0.005) -> bool:
+                          signal_time: datetime, buffer_pct: float = 0.001) -> dict[str, bool | float]:
     if direction == "SELL":
         logger.info(f"[Validate Signal]: {symbol} {direction} {interval}")
         bar_close_time = get_next_bar_close(signal_time, interval)
@@ -144,12 +146,21 @@ async def is_false_signal(symbol: str, entry_price: float, direction: str, inter
     if direction == "BUY" and entry_price <= (close_price + buffer):
         logger.info(
             f"[VALID SIGNAL CHECK]: BUY | entry_price: {entry_price} close_price: {close_price} buffer: {buffer}")
-        return False
-    if direction == "SELL" and entry_price >= close_price:
+        return {
+            "is_valid": False,
+            "close_price": close_price + buffer
+        }
+    if direction == "SELL" and entry_price >= close_price - buffer:
         logger.info(f"[VALID SIGNAL CHECK]: SELL | entry_price: {entry_price} close_price: {close_price}")
-        return False
+        return {
+            "is_valid": False,
+            "close_price": close_price - buffer
+        }
 
-    return True
+    return {
+        "is_valid": True,
+        "close_price": close_price - buffer if direction == "SELL" else close_price + buffer
+    }
 
 
 async def get_latest_mark_price(symbol: str) -> float:
@@ -175,37 +186,90 @@ async def get_latest_mark_price(symbol: str) -> float:
 async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str,
                                       signal_time: datetime, callback):
     try:
-        # Step 1: Check for false signal
-        is_false = await is_false_signal(symbol, entry_price, direction, interval, signal_time)
-        if is_false:
-            logger.warning(f"❌ False signal ignored: {symbol} {direction} at {entry_price}")
-            log_false_signal(symbol, direction, entry_price, interval, "false_signal", signal_time)
-            # delete_position_state(symbol, direction, True, None)
-            return
-        # Step 2: Check for volume spike
-        # if await is_volume_spike(symbol, interval):
-        #     logger.warning(f"[VOLUME SPIKE] Signal rejected due to abnormal volume on {symbol}")
-        #     return
-        #
-        # # Step 3: Check funding rate
-        # funding = await get_funding_rate(symbol)
-        # if direction == "BUY" and funding > 0.001:
-        #     logger.warning(f"[FUNDING] Skipping BUY due to positive funding: {funding}")
-        #     return
-        # if direction == "SELL" and funding < -0.001:
-        #     logger.warning(f"[FUNDING] Skipping SELL due to negative funding: {funding}")
-        #     return
-        #
-        # # Step 4: Check open interest
-        # if not await is_open_interest_supportive(symbol, direction, interval):
-        #     logger.warning(f"[OI FILTER] Skipping signal: OI not supportive for {symbol} {direction}")
-        #     return
-        logger.info(f"✅ Valid signal confirmed: {symbol} {direction} at {entry_price}")
+        # Run checks concurrently
+        is_false_task = is_false_signal(symbol, entry_price, direction, interval, signal_time)
+        conviction_data_task = get_high_conviction_score(symbol, direction, interval)
+        is_false_res, conviction_data = await asyncio.gather(is_false_task, conviction_data_task)
+        is_false = is_false_res["is_valid"]
+        close_price = is_false_res["close_price"]
 
-        # step 5: Process trades
-        await callback()
+        conviction_score = conviction_data["score"]
+        funding_rate = conviction_data["funding_rate"]
+        oi_trend = conviction_data["oi_trend"]
+        price_trend = conviction_data["price_trend"]
+        volume_trend = conviction_data["volume_trend"]
+        volume_spike_ratio = conviction_data["volume_spike_ratio"]
+
+        logger.info(f"[SIGNAL EVAL] {symbol}-{direction} | is_false={is_false} | score={conviction_score}")
+
+        # Decision thresholds
+        should_trade = (not is_false and conviction_score >= 0.2) or (is_false and conviction_score >= 0.7)
+
+        was_executed = False
+        if should_trade:
+            logger.info(f"[TRADE CONFIRMED] {symbol} {direction} @ {entry_price} with score {conviction_score}")
+            await callback()
+            was_executed = True
+        else:
+            reason = "false_signal" if is_false else "low_confidence"
+            logger.warning(f"[TRADE SKIPPED] {symbol} {direction} skipped due to {reason}, score={conviction_score}")
+            log_false_signal(symbol, direction, entry_price, interval, reason, signal_time)
+
+        await record_signal_log(
+            symbol=symbol,
+            direction=direction,
+            interval=interval,
+            entry_price=entry_price,
+            close_price=close_price,
+            conviction_score=conviction_score,
+            funding_rate=funding_rate,
+            oi_trend=oi_trend,
+            price_trend=price_trend,
+            volume_trend=volume_trend,
+            volume_spike_ratio=volume_spike_ratio,
+            is_false_signal=is_false,
+            was_executed=was_executed,
+            signal_time=signal_time
+        )
+
     except Exception as e:
-        logger.error(f"[SIGNAL VALIDATION ERROR] {symbol} {direction}: {e}")
+        logger.error(f"[VALIDATION ERROR] {symbol}: {e}")
+
+
+# async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str,
+#                                       signal_time: datetime, callback):
+#     try:
+#         # Step 1: Check for false signal
+#         is_false = await is_false_signal(symbol, entry_price, direction, interval, signal_time)
+#         if is_false:
+#             logger.warning(f"❌ False signal ignored: {symbol} {direction} at {entry_price}")
+#             log_false_signal(symbol, direction, entry_price, interval, "false_signal", signal_time)
+#             # delete_position_state(symbol, direction, True, None)
+#             return
+#         # Step 2: Check for volume spike
+#         # if await is_volume_spike(symbol, interval):
+#         #     logger.warning(f"[VOLUME SPIKE] Signal rejected due to abnormal volume on {symbol}")
+#         #     return
+#         #
+#         # # Step 3: Check funding rate
+#         # funding = await get_funding_rate(symbol)
+#         # if direction == "BUY" and funding > 0.001:
+#         #     logger.warning(f"[FUNDING] Skipping BUY due to positive funding: {funding}")
+#         #     return
+#         # if direction == "SELL" and funding < -0.001:
+#         #     logger.warning(f"[FUNDING] Skipping SELL due to negative funding: {funding}")
+#         #     return
+#         #
+#         # # Step 4: Check open interest
+#         # if not await is_open_interest_supportive(symbol, direction, interval):
+#         #     logger.warning(f"[OI FILTER] Skipping signal: OI not supportive for {symbol} {direction}")
+#         #     return
+#         logger.info(f"✅ Valid signal confirmed: {symbol} {direction} at {entry_price}")
+#
+#         # step 5: Process trades
+#         await callback()
+#     except Exception as e:
+#         logger.error(f"[SIGNAL VALIDATION ERROR] {symbol} {direction}: {e}")
 
 
 # print("SOLUSDT 1M close:", get_latest_close_price("SOLUSDT", "1m"))

@@ -337,6 +337,84 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
         return None
 
 
+async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: float, new_interval: str):
+    """
+    Evaluates whether a reversal is needed based on multi-timeframe rank.
+    Handles safe closure and state cleanup of opposite direction positions.
+    """
+    opposite_direction = "SELL" if new_direction == "BUY" else "BUY"
+    existing_state = await get_or_create_symbol_direction_state(symbol, opposite_direction, '', True)
+
+    if existing_state and existing_state.get("status") == "OPEN":
+        result = evaluate_multi_timeframe_strategy(
+            existing_direction=existing_state["direction"],
+            existing_interval=existing_state["interval"],
+            existing_qty=existing_state["total_qty"],
+            new_direction=new_direction,
+            new_interval=new_interval
+        )
+    # CASE 1: Cleanup stale state if it’s not OPEN
+    else:
+        logger.info(f"[REVERSE CHECK] No open {opposite_direction} position for {symbol}. Deleting stale state.")
+        await delete_position_state(symbol, opposite_direction, "")
+        return new_qty
+
+    action = result["action"]
+    position_id = existing_state.get("position_id") if existing_state else ""
+
+    # CASE 2: Reversal authorized
+    if action == "reverse":
+        logger.info(f"[REVERSAL DETECTED] Closing {opposite_direction} position on {symbol} to open {new_direction}")
+        try:
+            await close_all_positions(symbol)
+            await close_all_positions(symbol)
+            await update_position_state(symbol, opposite_direction, position_id, {"status": "CLOSED"})
+            await delete_position_state(symbol, opposite_direction, position_id)
+            total_qty = existing_state["total_qty"] + new_qty
+            return round(total_qty, 3)
+        except Exception as e:
+            logger.error(f"[REVERSAL ERROR] Failed to close and flip position for {symbol}: {e}")
+            return new_qty
+
+    # CASE 3: Reversal NOT allowed — keep OPEN state intact
+    logger.info(f"[REVERSE CHECK] No reversal permitted for {symbol}. Existing opposite position retained.")
+    return new_qty
+
+
+TIMEFRAME_RANK = {"3m": 1, "5m": 2, "15m": 3, "1h": 4, "4h": 5, "1d": 6}
+
+
+def evaluate_multi_timeframe_strategy(
+        existing_direction: str,
+        existing_interval: str,
+        existing_qty: float,
+        new_direction: str,
+        new_interval: str
+) -> dict:
+    """
+    Decide action for a new signal based on existing position's direction and timeframe.
+
+    Returns:
+        {
+            "action": "ignore" | "upgrade" | "reverse",
+            "reverse_qty": float  # only used if action == "reverse"
+        }
+    """
+    existing_rank = TIMEFRAME_RANK.get(existing_interval, 0)
+    new_rank = TIMEFRAME_RANK.get(new_interval, 0)
+
+    if existing_direction == new_direction:
+        if existing_rank >= new_rank:
+            return {"action": "ignore", "reverse_qty": 0}
+        return {"action": "upgrade", "reverse_qty": 0}
+
+    # Opposite direction: consider reversal only if new is higher ranked
+    if existing_rank < new_rank:
+        return {"action": "reverse", "reverse_qty": existing_qty}
+
+    return {"action": "ignore", "reverse_qty": 0}
+
+
 async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float):
     """
     If an opposite position is open, closes it and opens a new one with doubled quantity.

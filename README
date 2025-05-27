@@ -1,0 +1,98 @@
+# Bitunix Trading Bot
+
+An async trading bot built around TradingView signal ingestion, smart validation (market context), and real-time execution via the Bitunix REST + WebSocket APIs.
+
+## ✅ Features
+
+* Parses TradingView signals via `/webhook` endpoint
+* Filters duplicate signals and fake breakouts
+* Uses **Bitunix Kline + Ticker API** for live data
+* Validates trades with funding rate, open interest, price trend
+* Places market and limit entries
+* Dynamically places and updates 4 TP + 1 SL
+* Maintains real-time state in Redis, persistent state in Postgres
+* Fully async & Docker-ready, deployed on Render
+
+## 🔧 Components
+
+| File                         | Purpose                                                 |
+| ---------------------------- | ------------------------------------------------------- |
+| `webhook_handler.py`         | Entry point from TradingView. Filters and places trades |
+| `websocket_handler.py`       | Handles Bitunix WebSocket for position & order tracking |
+| `redis_state_manager.py`     | Redis-based per-symbol tracking of open positions       |
+| `postgres_state_manager.py`  | Persists position lifecycle to Postgres                 |
+| `utils.py`                   | REST API helpers for order placement, SL/TP management  |
+| `price_feed.py`              | Fetches live mark/close price & verifies with timestamp |
+| `market_filters.py`          | Validates market bias using OI + price + funding data   |
+| `orphan_position_checker.py` | Reconciles state mismatches and missing SL/TPs          |
+| `signal_limiter.py`          | Prevents repeat signals or rate abuse via Redis keys    |
+
+## 🔍 Signal Validation Logic
+
+Each signal passes through the following filters:
+
+* ✅ Bar must be closed before validating price
+* ✅ Duplicate detection using Redis (`signal_lock:{symbol}:{dir}`)
+* ✅ **Funding Rate**: skip overbought/oversold scenarios
+* ✅ **Open Interest**: must be rising
+* ✅ **Market Bias**: must match signal direction based on OI+price
+
+## 🧠 Position Strategy
+
+* 1 Market + 3 Limit orders per signal (accumulation zones)
+* 4 Take Profits: TP1-TP4 with progressive qty and breakeven SL
+* After TP1 hit: SL moved to breakeven based on realized PnL
+* After TP2-3: SL steps forward
+* TP4 exits all remaining
+
+## 🔄 Reversal Handling
+
+* Detects opposite position
+* Cancels limit orders
+* Closes current via reduce-only order
+* Reopens new direction with adjusted qty
+
+## 🧹 Orphan Fixes
+
+* Runs background task:
+
+  * Checks if Redis qty matches Bitunix
+  * Fixes TP/SL if missing or mismatched
+  * Submits modified TP/SL as needed
+
+## 🧪 Market Intelligence
+
+* `get_funding_rate(symbol)`
+* `get_open_interest(symbol)`
+* `get_open_interest_trend()`
+* `get_price_trend()`
+* `classify_market_bias()` → `long`, `short`, or `neutral`
+
+Used to enforce disciplined, context-aware entries.
+
+## 📦 Deployment
+
+* Written in async Python using `httpx` and `quart`
+* Dockerized
+* Hosted on Render with Redis + Postgres provisioned
+* Websocket listener auto-started via thread
+
+---
+
+## 📈 Roadmap Ideas
+
+* Volume spike detection as filter
+* TP/SL slippage tracking
+* Optional trailing stop after TP2
+* Signal replay tool for dry runs
+* Confidence scoring for bias filter
+
+---
+
+## License
+
+MIT
+
+---
+
+Built with ❤️ and risk management first.
