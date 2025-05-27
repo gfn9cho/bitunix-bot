@@ -171,7 +171,6 @@ async def get_high_conviction_score(symbol: str, direction: str, interval: str =
         return {
             "score": round(score, 2),
             "funding_rate": funding,
-            "oi_trend": 0.0,
             "price_trend": prices,
             "volume_trend": volumes,
             "volume_spike_ratio": volumes[-1] / avg_volume if avg_volume else 0.0
