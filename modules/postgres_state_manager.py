@@ -28,6 +28,7 @@ create_statements = ["""
                     direction TEXT NOT NULL,
                     interval TEXT,
                     entry_price FLOAT,
+                    close_price FLOAT,
                     conviction_score FLOAT,
                     funding_rate FLOAT,
                     oi_trend FLOAT[],
@@ -36,8 +37,7 @@ create_statements = ["""
                     volume_spike_ratio FLOAT,
                     is_false_signal BOOLEAN,
                     was_executed BOOLEAN,
-                    signal_time TIMESTAMP DEFAULT NOW(),
-                    candle_close_price FLOAT
+                    signal_time TIMESTAMP DEFAULT NOW()
                 )"""]
 
 
