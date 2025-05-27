@@ -138,60 +138,43 @@ async def get_volume_trend(symbol: str, interval: str = "5m", lookback: int = 5)
         return []
 
 
-async def get_high_conviction_score(symbol: str, direction: str, interval: str = "5m", lookback: int = 5) -> dict:
+async def get_high_conviction_score(symbol: str, direction: str, interval: str = "5m") -> dict:
     try:
-        symbol = symbol.upper()
-        interval = interval.lower()
-
-        funding_url = f"{BASE_URL}/api/v1/futures/market/funding_rate"
-        oi_url = f"{BASE_URL}/api/v1/futures/market/open-interest-history"
-        kline_url = f"{BASE_URL}/api/v1/futures/market/kline"
+        url = f"{BASE_URL}/api/v1/futures/market/kline"
+        params = {"symbol": symbol.upper(), "interval": interval, "limit": 5}
 
         async with httpx.AsyncClient(timeout=5.0) as client:
-            funding_task = client.get(funding_url, params={"symbol": symbol})
-            oi_task = client.get(oi_url, params={"symbol": symbol, "interval": interval, "limit": lookback})
-            kline_task = client.get(kline_url, params={"symbol": symbol, "interval": interval, "limit": lookback})
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            kline = resp.json().get("data", [])
 
-            funding_resp, oi_resp, kline_resp = await asyncio.gather(funding_task, oi_task, kline_task)
+        prices = [float(candle[4]) for candle in kline]  # close prices
+        volumes = [float(candle[5]) for candle in kline]  # volumes
 
-        funding_data = funding_resp.json().get("data", {})
-        oi_data = oi_resp.json().get("data", [])
-        kline_data = kline_resp.json().get("data", [])
-
-        funding_rate = float(funding_data.get("fundingRate", 0.0)) if isinstance(funding_data, dict) else 0.0
-        funding_check = (funding_rate > 0 and direction == "BUY") or (funding_rate < 0 and direction == "SELL")
-
-        oi_trend = [float(d["openInterestValue"]) for d in oi_data if "openInterestValue" in d]
-        oi_increasing = all(earlier <= later for earlier, later in zip(oi_trend, oi_trend[1:]))
-
-        price_trend = [float(d["close"]) for d in kline_data if "close" in d]
-        if direction == "BUY":
-            price_check = all(earlier <= later for earlier, later in zip(price_trend, price_trend[1:]))
-        else:
-            price_check = all(earlier >= later for earlier, later in zip(price_trend, price_trend[1:]))
-
-        volumes = [float(d["volume"]) for d in kline_data if "volume" in d]
+        price_up = prices[-1] > prices[0]
         avg_volume = sum(volumes[:-1]) / len(volumes[:-1]) if len(volumes) > 1 else 0
-        volume_spike_ratio = volumes[-1] / avg_volume if avg_volume else 0
-        volume_spike = volume_spike_ratio >= 2.0
+        volume_spike = volumes[-1] > 2 * avg_volume if avg_volume else False
 
-        score = round(sum([
-            0.3 if funding_check else 0.0,
-            0.3 if oi_increasing else 0.0,
-            0.2 if price_check else 0.0,
-            0.2 if volume_spike else 0.0,
-        ]), 2)
+        # Fetch funding rate
+        funding_url = f"{BASE_URL}/api/v1/futures/market/funding_rate"
+        funding_resp = await client.get(funding_url, params={"symbol": symbol.upper()})
+        funding = float(funding_resp.json().get("data", {}).get("fundingRate", 0))
 
-        logger.info(f"[CONVICTION SCORE] {symbol}-{direction} ({interval}) = {score} | "
-                    f"funding={funding_check}, oi={oi_increasing}, price={price_check}, volume={volume_spike}")
+        funding_check = (funding > 0 and direction == "BUY") or (funding < 0 and direction == "SELL")
+
+        # Score components: funding + price + volume
+        score = 0.0
+        score += 0.4 if funding_check else 0.0
+        score += 0.3 if price_up else 0.0
+        score += 0.3 if volume_spike else 0.0
 
         return {
-            "score": score,
-            "funding_rate": funding_rate,
-            "oi_trend": oi_trend,
-            "price_trend": price_trend,
+            "score": round(score, 2),
+            "funding_rate": funding,
+            "oi_trend": 0.0,
+            "price_trend": prices,
             "volume_trend": volumes,
-            "volume_spike_ratio": volume_spike_ratio
+            "volume_spike_ratio": volumes[-1] / avg_volume if avg_volume else 0.0
         }
 
     except Exception as e:
@@ -199,8 +182,8 @@ async def get_high_conviction_score(symbol: str, direction: str, interval: str =
         return {
             "score": 0.0,
             "funding_rate": 0.0,
-            "oi_trend": [],
             "price_trend": [],
             "volume_trend": [],
             "volume_spike_ratio": 0.0
         }
+
