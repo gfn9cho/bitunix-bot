@@ -195,7 +195,7 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
 
         conviction_score = conviction_data["score"]
         funding_rate = conviction_data["funding_rate"]
-        oi_trend = 0.0
+        oi_trend = 0
         price_trend = conviction_data["price_trend"]
         volume_trend = conviction_data["volume_trend"]
         volume_spike_ratio = conviction_data["volume_spike_ratio"]
