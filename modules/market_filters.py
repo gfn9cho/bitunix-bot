@@ -148,8 +148,11 @@ async def get_high_conviction_score(symbol: str, direction: str, interval: str =
             resp.raise_for_status()
             kline = resp.json().get("data", [])
 
-        prices = [float(candle[4]) for candle in kline]  # close prices
-        volumes = [float(candle[5]) for candle in kline]  # volumes
+
+        if not kline:
+            raise ValueError("Empty kline data")
+        prices = [float(candle["close"]) for candle in kline]  # close prices
+        volumes = [float(candle["baseVol"]) for candle in kline]  # volumes
 
         price_up = prices[-1] > prices[0]
         avg_volume = sum(volumes[:-1]) / len(volumes[:-1]) if len(volumes) > 1 else 0
