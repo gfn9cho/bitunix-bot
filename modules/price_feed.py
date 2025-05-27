@@ -213,7 +213,7 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
         else:
             reason = "false_signal" if is_false else "low_confidence"
             logger.warning(f"[TRADE SKIPPED] {symbol} {direction} skipped due to {reason}, score={conviction_score}")
-            log_false_signal(symbol, direction, entry_price, interval, reason, signal_time)
+            # log_false_signal(symbol, direction, entry_price, interval, reason, signal_time)
 
         await record_signal_log(
             symbol=symbol,
@@ -228,8 +228,7 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
             volume_trend=volume_trend,
             volume_spike_ratio=volume_spike_ratio,
             is_false_signal=is_false,
-            was_executed=was_executed,
-            signal_time=signal_time
+            was_executed=was_executed
         )
 
     except Exception as e:
