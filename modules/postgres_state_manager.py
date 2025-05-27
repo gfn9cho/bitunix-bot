@@ -169,14 +169,13 @@ def log_signal_event(symbol: str, direction: str, interval: str, entry_price: fl
                         symbol, direction, interval, entry_price, close_price,
                         conviction_score, funding_rate,
                         oi_trend, price_trend, volume_trend,
-                        volume_spike_ratio, is_false_signal, was_executed,
-                        signal_time
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        volume_spike_ratio, is_false_signal, was_executed
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     symbol, direction, interval, entry_price, close_price,
                     conviction_score, funding_rate,
                     oi_trend, price_trend, volume_trend,
-                    volume_spike_ratio, is_false_signal, was_executed, signal_time
+                    volume_spike_ratio, is_false_signal, was_executed
                 ))
                 conn.commit()
                 logger.info(f"[SIGNAL LOGGED] {symbol}-{direction} | Score: {conviction_score}")
