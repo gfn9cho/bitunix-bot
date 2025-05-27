@@ -61,8 +61,7 @@ async def record_signal_log(symbol, direction, interval, entry_price, close_pric
             volume_trend=volume_trend,
             volume_spike_ratio=volume_spike_ratio,
             is_false_signal=is_false_signal,
-            was_executed=was_executed,
-            signal_time=signal_time
+            was_executed=was_executed
         )
     except Exception as e:
         print(f"[LOG SIGNAL FAIL] {symbol}-{direction}: {e}")
