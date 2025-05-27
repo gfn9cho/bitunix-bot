@@ -46,7 +46,7 @@ async def delete_position_state(symbol: str, direction: str, position_id: str = 
 async def record_signal_log(symbol, direction, interval, entry_price, close_price,
                             conviction_score, funding_rate,
                             oi_trend, price_trend, volume_trend,
-                            volume_spike_ratio, is_false_signal, was_executed, signal_time):
+                            volume_spike_ratio, is_false_signal, was_executed):
     try:
         log_signal_event(
             symbol=symbol,

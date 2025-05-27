@@ -159,8 +159,7 @@ def delete_position_state(symbol, direction, position_id=None):
 def log_signal_event(symbol: str, direction: str, interval: str, entry_price: float,
                      close_price: float, conviction_score: float, funding_rate: float,
                      oi_trend: list, price_trend: list, volume_trend: list,
-                     volume_spike_ratio: float, is_false_signal: bool, was_executed: bool,
-                     signal_time: datetime):
+                     volume_spike_ratio: float, is_false_signal: bool, was_executed: bool):
     try:
         with get_db_conn() as conn:
             with conn.cursor() as cur:
