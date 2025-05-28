@@ -52,7 +52,7 @@ async def webhook_handler(symbol):
 
         parsed = parse_signal(message)
         direction = parsed["direction"].upper()
-        signal_time = datetime.utcnow().isoformat()
+        signal_time = datetime.utcnow()
         entry = parsed["entry_price"]
 
         async def process_trade():

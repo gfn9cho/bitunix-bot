@@ -27,13 +27,13 @@ async def get_or_create_symbol_direction_state(symbol: str, direction: str, posi
 
     # Fallback to Postgres
     state = pg_get(symbol, direction, position_id)
-    await r.set(key, json.dumps(state))
+    await r.set(key, json.dumps(state, default=str))
     return state
 
 
 async def update_position_state(symbol: str, direction: str, position_id: str, updated_state: dict):
     key = _redis_key(symbol, direction)
-    await r.set(key, json.dumps(updated_state))
+    await r.set(key, json.dumps(updated_state, default=str))
     pg_update(symbol, direction, position_id, updated_state)
 
 
