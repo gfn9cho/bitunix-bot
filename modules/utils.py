@@ -357,6 +357,19 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
     else:
         logger.info(f"[REVERSE CHECK] No open {opposite_direction} position for {symbol}. Deleting stale state.")
         await delete_position_state(symbol, opposite_direction, "")
+        # Check for buffered reversal quantity
+        buffer_key = f"recent_close:{symbol}:{opposite_direction}"
+        r = get_redis()
+        buffer_raw = await r.get(buffer_key)
+        if buffer_raw:
+            try:
+                buffer_data = json.loads(buffer_raw)
+                buffered_qty = float(buffer_data.get("qty", 0))
+                new_qty += buffered_qty
+                await r.delete(buffer_key)
+                logger.info(f"[REVERSE BUFFER APPLIED] {symbol}-{new_direction} +{buffered_qty}")
+            except Exception as buffer_error:
+                logger.warning(f"[BUFFER ERROR] Failed to apply buffered quantity for {symbol}: {buffer_error}")
         return new_qty
 
     action = result["action"]

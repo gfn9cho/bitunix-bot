@@ -14,12 +14,14 @@ from modules.loss_tracking import log_profit_loss
 # from modules.state import position_state, save_position_state, get_or_create_symbol_direction_state
 from modules.redis_state_manager import get_or_create_symbol_direction_state, \
     update_position_state, delete_position_state
+from modules.redis_client import get_redis
 # from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.utils import place_tp_sl_order_async, cancel_all_new_orders, \
     modify_tp_sl_order_async, update_tp_quantity, update_sl_price
 
 # TP distribution: 70% for TP1, 10% each for TP2–TP4
 TP_DISTRIBUTION = [0.7, 0.1, 0.1, 0.1]
+INTERVAL_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "1h": 60, "4h": 240}
 
 __all__ = ["start_websocket_listener"]
 
@@ -203,9 +205,22 @@ async def handle_ws_message(message):
                 except Exception as cancel_err:
                     logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
                 try:
-                    log_profit_loss(symbol, direction, str(position_id), round(realized_pnl, 4),
-                                    "PROFIT" if realized_pnl > 0 else "LOSS",
-                                    ctime, log_date)
+                    is_sl = True if realized_pnl < -1.0 else False
+                    if is_sl:
+                        buffer_key = f"recent_close:{symbol}:{direction}"
+                        buffer_value = {
+                            "qty": old_qty,
+                            "closed_at": datetime.utcnow().isoformat()
+                        }
+                        interval = state.get("interval", "5m")
+                        interval_minutes = INTERVAL_MINUTES.get(interval, 5)
+                        buffer_ttl = interval_minutes * 60 + 15
+                        r = get_redis()
+                        await r.set(buffer_key, json.dumps(buffer_value), ex=buffer_ttl)
+                        logger.info(f"[BUFFERED SL CLOSE] {symbol}-{direction} qty={old_qty}")
+                        log_profit_loss(symbol, direction, str(position_id), round(realized_pnl, 4),
+                                        "PROFIT" if realized_pnl > 0 else "LOSS",
+                                        ctime, log_date)
                 except Exception as log_pnl_error:
                     logger.info(f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}")
 
@@ -238,6 +253,7 @@ async def handle_ws_message(message):
                 trigger_price = float(tps[step])
                 entry = float(state.get("entry_price", 0))
                 logger.info(f"[TP SL INFO]:{state}")
+
                 try:
                     if step == 0 and entry != 0:
                         if position_direction == "BUY":
