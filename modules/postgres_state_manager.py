@@ -21,7 +21,7 @@ create_statements = ["""
                     stop_loss FLOAT,
                     qty_distribution FLOAT[],
                     status TEXT,
-                    signal_time TIMESTAMP
+                    signal_time TIMESTAMP,
                     UNIQUE (symbol, direction, position_id )
                 )""", """CREATE TABLE IF NOT EXISTS signal_log (
                     id SERIAL PRIMARY KEY,
