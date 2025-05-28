@@ -46,7 +46,7 @@ async def delete_position_state(symbol: str, direction: str, position_id: str = 
 async def record_signal_log(symbol, direction, interval, entry_price, close_price,
                             conviction_score, funding_rate,
                             oi_trend, price_trend, volume_trend,
-                            volume_spike_ratio, is_false_signal, was_executed):
+                            volume_spike_ratio, is_false_signal, was_executed, signal_time):
     try:
         log_signal_event(
             symbol=symbol,
@@ -61,7 +61,8 @@ async def record_signal_log(symbol, direction, interval, entry_price, close_pric
             volume_trend=volume_trend,
             volume_spike_ratio=volume_spike_ratio,
             is_false_signal=is_false_signal,
-            was_executed=was_executed
+            was_executed=was_executed,
+            signal_time=signal_time
         )
     except Exception as e:
         print(f"[LOG SIGNAL FAIL] {symbol}-{direction}: {e}")

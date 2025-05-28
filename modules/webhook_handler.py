@@ -81,6 +81,7 @@ async def webhook_handler(symbol):
                 state["stop_loss"] = new_signal_sl
                 state["created_at"] = datetime.utcnow().isoformat()
                 state["interval"] = interval
+                state["signal_time"] = signal_time
 
                 zone_start, zone_bottom = parsed["accumulation_zone"]
                 logger.info(f"[ACC ZONES]: {zone_start}: {zone_bottom}")

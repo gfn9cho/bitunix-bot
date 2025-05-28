@@ -21,6 +21,7 @@ create_statements = ["""
                     stop_loss FLOAT,
                     qty_distribution FLOAT[],
                     status TEXT,
+                    signal_time TIMESTAMP
                     UNIQUE (symbol, direction, position_id )
                 )""", """CREATE TABLE IF NOT EXISTS signal_log (
                     id SERIAL PRIMARY KEY,
@@ -159,7 +160,8 @@ def delete_position_state(symbol, direction, position_id=None):
 def log_signal_event(symbol: str, direction: str, interval: str, entry_price: float,
                      close_price: float, conviction_score: float, funding_rate: float,
                      oi_trend: list, price_trend: list, volume_trend: list,
-                     volume_spike_ratio: float, is_false_signal: bool, was_executed: bool):
+                     volume_spike_ratio: float, is_false_signal: bool, was_executed: bool,
+                     signal_time: datetime):
     try:
         with get_db_conn() as conn:
             with conn.cursor() as cur:
@@ -168,13 +170,13 @@ def log_signal_event(symbol: str, direction: str, interval: str, entry_price: fl
                         symbol, direction, interval, entry_price, close_price,
                         conviction_score, funding_rate,
                         oi_trend, price_trend, volume_trend,
-                        volume_spike_ratio, is_false_signal, was_executed
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        volume_spike_ratio, is_false_signal, was_executed, signal_time
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     symbol, direction, interval, entry_price, close_price,
                     conviction_score, funding_rate,
                     oi_trend, price_trend, volume_trend,
-                    volume_spike_ratio, is_false_signal, was_executed
+                    volume_spike_ratio, is_false_signal, was_executed, signal_time
                 ))
                 conn.commit()
                 logger.info(f"[SIGNAL LOGGED] {symbol}-{direction} | Score: {conviction_score}")

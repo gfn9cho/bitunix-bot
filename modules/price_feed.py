@@ -203,7 +203,7 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
         logger.info(f"[SIGNAL EVAL] {symbol}-{direction} | is_false={is_false} | score={conviction_score}")
 
         # Decision thresholds
-        should_trade = (not is_false and conviction_score >= 0.2) or (is_false and conviction_score >= 0.7)
+        should_trade = (not is_false and conviction_score > 0.3) or (is_false and conviction_score >= 0.7)
 
         was_executed = False
         if should_trade:
@@ -228,7 +228,8 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
             volume_trend=volume_trend,
             volume_spike_ratio=volume_spike_ratio,
             is_false_signal=is_false,
-            was_executed=was_executed
+            was_executed=was_executed,
+            signal_time=signal_time
         )
 
     except Exception as e:
