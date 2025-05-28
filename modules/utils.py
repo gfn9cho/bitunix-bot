@@ -376,7 +376,7 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
             logger.error(f"[REVERSAL ERROR] Failed to close and flip position for {symbol}: {e}")
             return new_qty
 
-    # CASE 3: Reversal NOT allowed — keep OPEN state intact
+    # CASE 3: Reversal NOT allowed — keep OPEN state intact and upgrade with new qty and price
     logger.info(f"[REVERSE CHECK] No reversal permitted for {symbol}. Existing opposite position retained.")
     return new_qty
 

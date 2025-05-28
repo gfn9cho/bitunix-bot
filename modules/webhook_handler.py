@@ -133,7 +133,7 @@ async def webhook_handler(symbol):
                         price={zone_bottom}, qty={bottom_qty}")
                 await place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
             else:
-                await delete_position_state(symbol, direction)
+                # await delete_position_state(symbol, direction)
                 logger.info(f"[TRADE SKIP]: As the existing position is open and in TP stage")
 
         async def wrapped_process():
