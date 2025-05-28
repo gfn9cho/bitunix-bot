@@ -156,6 +156,7 @@ async def get_high_conviction_score(symbol: str, direction: str, interval: str =
 
         price_up = prices[-1] > prices[0]
         avg_volume = sum(volumes[:-1]) / len(volumes[:-1]) if len(volumes) > 1 else 0
+        logger.info(f"[HIGH CONVICTION] {avg_volume}")
         volume_spike = volumes[-1] > 2 * avg_volume if avg_volume else False
 
         # Fetch funding rate
