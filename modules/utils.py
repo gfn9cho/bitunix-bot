@@ -409,13 +409,13 @@ def evaluate_multi_timeframe_strategy(
         return {"action": "upgrade", "reverse_qty": 0}
 
     # Opposite direction: consider reversal only if new is higher ranked
-    if existing_rank < new_rank:
+    if existing_rank <= new_rank:
         return {"action": "reverse", "reverse_qty": existing_qty}
 
     return {"action": "ignore", "reverse_qty": 0}
 
 
-async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float):
+async def maybe_reverse_position(symbol: str, new_direction: str):
     """
     If an opposite position is open, closes it and opens a new one with doubled quantity.
     """
@@ -425,7 +425,7 @@ async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float
     if not existing_state or existing_state.get("status") != "OPEN":
         logger.info(f"[REVERSE CHECK] No open {opposite_direction} position for {symbol}. Proceeding normally.")
         await delete_position_state(symbol, opposite_direction)
-        return new_qty  # no reversal needed
+        return 0  # no reversal needed
 
     logger.info(f"[REVERSAL DETECTED] Closing {opposite_direction} position on {symbol} to open {new_direction}")
 
@@ -440,11 +440,11 @@ async def maybe_reverse_position(symbol: str, new_direction: str, new_qty: float
         await delete_position_state(symbol, opposite_direction, opposite_position_id)
 
         # Return doubled quantity to use for new entry
-        return round(existing_state["total_qty"] + new_qty, 3)
+        return round(existing_state["total_qty"], 3)
 
     except Exception as e:
         logger.error(f"[REVERSAL ERROR] Failed to close and flip position for {symbol}: {e}")
-        return new_qty
+        return 0
 
 
 async def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True,
