@@ -20,7 +20,7 @@ TP_DISTRIBUTION = [0.7, 0.1, 0.1, 0.1]
 
 
 async def fetch_bitunix_positions():
-    url = f"{BASE_URL}/api/v1/futures/position/get_pending-positions"
+    url = f"{BASE_URL}/api/v1/futures/position/get_pending_positions"
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
     timestamp = str(int(datetime.utcnow().timestamp() * 1000))
     sign = generate_get_sign_api(nonce, timestamp, "get", "")
