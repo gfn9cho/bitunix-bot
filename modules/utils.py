@@ -12,7 +12,6 @@ from modules.config import API_KEY, API_SECRET, BASE_URL
 from modules.logger_config import logger
 # from modules.postgres_state_manager import update_position_state, get_or_create_symbol_direction_state
 from modules.redis_state_manager import get_or_create_symbol_direction_state, update_position_state, delete_position_state
-from modules.price_feed import get_latest_mark_price
 from modules.redis_client import get_redis
 
 
@@ -58,6 +57,7 @@ async def is_valid_tp_price(direction: str, tp_price: float,
 
 async def safe_submit_sl_update(symbol: str, direction: str, sl_payload: dict, sl_price: float, retries: int = 3,
                                 retry_delay: int = 2) -> bool:
+    from modules.price_feed import get_latest_mark_price
     for attempt in range(retries):
         try:
             mark_price = await get_latest_mark_price(symbol)
@@ -85,6 +85,7 @@ async def safe_submit_sl_update(symbol: str, direction: str, sl_payload: dict, s
 
 async def safe_submit_tp_update(symbol: str, direction: str, tp_payload: dict, tp_price: float, retries: int = 3,
                                 retry_delay: int = 2) -> bool:
+    from modules.price_feed import get_latest_mark_price
     for attempt in range(retries):
         try:
             mark_price = await get_latest_mark_price(symbol)

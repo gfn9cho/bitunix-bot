@@ -5,10 +5,8 @@ import httpx
 
 from modules.config import BASE_URL
 from modules.logger_config import logger
-from modules.loss_tracking import log_false_signal
 from modules.market_filters import get_high_conviction_score
 from modules.redis_state_manager import record_signal_log
-from modules.utils import evaluate_signal_received
 
 # from modules.market_filters import get_funding_rate, get_open_interest, get_open_interest_trend
 
@@ -186,6 +184,7 @@ async def get_latest_mark_price(symbol: str) -> float:
 
 async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str,
                                       signal_time: datetime, market_qty: float, callback):
+    from modules.utils import evaluate_signal_received
     try:
         # Run checks concurrently
         is_false_task = is_false_signal(symbol, entry_price, direction, interval, signal_time)
@@ -240,43 +239,3 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
 
     except Exception as e:
         logger.error(f"[VALIDATION ERROR] {symbol}: {e}")
-
-# async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str,
-#                                       signal_time: datetime, callback):
-#     try:
-#         # Step 1: Check for false signal
-#         is_false = await is_false_signal(symbol, entry_price, direction, interval, signal_time)
-#         if is_false:
-#             logger.warning(f"❌ False signal ignored: {symbol} {direction} at {entry_price}")
-#             log_false_signal(symbol, direction, entry_price, interval, "false_signal", signal_time)
-#             # delete_position_state(symbol, direction, True, None)
-#             return
-#         # Step 2: Check for volume spike
-#         # if await is_volume_spike(symbol, interval):
-#         #     logger.warning(f"[VOLUME SPIKE] Signal rejected due to abnormal volume on {symbol}")
-#         #     return
-#         #
-#         # # Step 3: Check funding rate
-#         # funding = await get_funding_rate(symbol)
-#         # if direction == "BUY" and funding > 0.001:
-#         #     logger.warning(f"[FUNDING] Skipping BUY due to positive funding: {funding}")
-#         #     return
-#         # if direction == "SELL" and funding < -0.001:
-#         #     logger.warning(f"[FUNDING] Skipping SELL due to negative funding: {funding}")
-#         #     return
-#         #
-#         # # Step 4: Check open interest
-#         # if not await is_open_interest_supportive(symbol, direction, interval):
-#         #     logger.warning(f"[OI FILTER] Skipping signal: OI not supportive for {symbol} {direction}")
-#         #     return
-#         logger.info(f"✅ Valid signal confirmed: {symbol} {direction} at {entry_price}")
-#
-#         # step 5: Process trades
-#         await callback()
-#     except Exception as e:
-#         logger.error(f"[SIGNAL VALIDATION ERROR] {symbol} {direction}: {e}")
-
-
-# print("SOLUSDT 1M close:", get_latest_close_price("SOLUSDT", "1m"))
-# false_sginal = is_false_signal("SOLUSDT", 176.90, "BUY", "1m", datetime.datetime.utcnow())
-# logger.info(f"{false_sginal}")
