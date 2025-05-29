@@ -205,7 +205,7 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
         logger.info(f"[SIGNAL EVAL] {symbol}-{direction} | is_false={is_false} | score={conviction_score}")
 
         # Decision thresholds
-        should_trade = (not is_false and conviction_score > 0.3) or \
+        should_trade = (not is_false and conviction_score >= 0.3) or \
                        (is_false and conviction_score >= 0.7) if market_qty_revised == market_qty else \
             (not is_false) or \
             (is_false and conviction_score >= 0.7)

@@ -148,16 +148,16 @@ async def get_high_conviction_score(symbol: str, direction: str, interval: str =
             resp.raise_for_status()
             kline = resp.json().get("data", [])
 
-
         if not kline:
             raise ValueError("Empty kline data")
         prices = [float(candle["close"]) for candle in kline]  # close prices
         volumes = [float(candle["baseVol"]) for candle in kline]  # volumes
 
         price_up = prices[-1] > prices[0]
+        price_down = prices[-1] < prices[0]
         avg_volume = sum(volumes[:-1]) / len(volumes[:-1]) if len(volumes) > 1 else 0
-        logger.info(f"[HIGH CONVICTION] {avg_volume}")
-        volume_spike = volumes[-1] > 2 * avg_volume if avg_volume else False
+        volume_spike_ratio = volumes[-1] / avg_volume if avg_volume else 0
+        volume_spike = volume_spike_ratio > 2
 
         # Fetch funding rate
         funding_url = f"{BASE_URL}/api/v1/futures/market/funding_rate"
@@ -171,8 +171,10 @@ async def get_high_conviction_score(symbol: str, direction: str, interval: str =
         # Score components: funding + price + volume
         score = 0.0
         score += 0.4 if funding_check else 0.0
-        score += 0.3 if price_up else 0.0
-        score += 0.3 if volume_spike else 0.0
+        score += 0.3 if (price_up and direction == "BUY") or (price_down and direction == "SELL") else 0.0
+        if volume_spike:
+            if (direction == "BUY" and price_up) or (direction == "SELL" and not price_up):
+                score += 0.3
 
         return {
             "score": round(score, 2),
@@ -191,4 +193,3 @@ async def get_high_conviction_score(symbol: str, direction: str, interval: str =
             "volume_trend": [],
             "volume_spike_ratio": 0.0
         }
-
