@@ -241,14 +241,15 @@ async def handle_ws_message(message):
                 position_id = tp_data.get("positionId")
                 tp_direction = tp_data.get("side", "BUY").upper()
                 position_direction = "SELL" if tp_direction == "BUY" else "BUY"
-                logger.info(f"[TPSL EVENT]: {tp_data}")
+                # logger.info(f"[TPSL EVENT]: {tp_data}")
 
                 state = await get_or_create_symbol_direction_state(symbol, position_direction, position_id=position_id)
                 tps = state.get("tps", [])
                 step = state.get("step", 0)
                 old_qty = float(state.get("total_qty", 0))
-                tp_qty_triggered = float(tp_data.get("tpQty"))
-                new_qty = round(old_qty - tp_qty_triggered, 3)
+                # tp_qty_triggered = float(tp_data.get("tpQty"))
+                triggered_qty = sum(TP_DISTRIBUTION[:step]) * old_qty
+                new_qty = round(old_qty - triggered_qty, 3)
                 next_step = step + 1
                 trigger_price = float(tps[step])
                 entry = float(state.get("entry_price", 0))
