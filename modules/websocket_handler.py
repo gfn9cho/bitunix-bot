@@ -248,9 +248,9 @@ async def handle_ws_message(message):
                 step = state.get("step", 0)
                 old_qty = float(state.get("total_qty", 0))
                 # tp_qty_triggered = float(tp_data.get("tpQty"))
-                triggered_qty = sum(TP_DISTRIBUTION[:step]) * old_qty
-                new_qty = round(old_qty - triggered_qty, 3)
                 next_step = step + 1
+                triggered_qty = sum(TP_DISTRIBUTION[:next_step]) * old_qty
+                new_qty = round(old_qty - triggered_qty, 3)
                 trigger_price = float(tps[step])
                 entry = float(state.get("entry_price", 0))
                 logger.info(f"[TP SL INFO]:{state}")
