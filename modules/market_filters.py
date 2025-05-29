@@ -146,7 +146,7 @@ async def get_high_conviction_score(symbol: str, direction: str, interval: str =
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(url, params=params)
             resp.raise_for_status()
-            kline = resp.json().get("data", [])
+            kline = sorted(resp.json().get("data", []), key=lambda x: x["time"])
 
         if not kline:
             raise ValueError("Empty kline data")
