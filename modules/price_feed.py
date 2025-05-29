@@ -8,6 +8,7 @@ from modules.logger_config import logger
 from modules.loss_tracking import log_false_signal
 from modules.market_filters import get_high_conviction_score
 from modules.redis_state_manager import record_signal_log
+from modules.utils import evaluate_signal_received
 
 # from modules.market_filters import get_funding_rate, get_open_interest, get_open_interest_trend
 
@@ -184,11 +185,13 @@ async def get_latest_mark_price(symbol: str) -> float:
 
 
 async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str,
-                                      signal_time: datetime, callback):
+                                      signal_time: datetime, market_qty: float, callback):
     try:
         # Run checks concurrently
         is_false_task = is_false_signal(symbol, entry_price, direction, interval, signal_time)
         conviction_data_task = get_high_conviction_score(symbol, direction, interval)
+        market_qty_revised = await evaluate_signal_received(symbol, direction, market_qty,
+                                                            interval)
         is_false_res, conviction_data = await asyncio.gather(is_false_task, conviction_data_task)
         is_false = is_false_res["is_valid"]
         close_price = is_false_res["close_price"]
@@ -203,12 +206,15 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
         logger.info(f"[SIGNAL EVAL] {symbol}-{direction} | is_false={is_false} | score={conviction_score}")
 
         # Decision thresholds
-        should_trade = (not is_false and conviction_score > 0.3) or (is_false and conviction_score >= 0.7)
+        should_trade = (not is_false and conviction_score > 0.3) or \
+                       (is_false and conviction_score >= 0.7) if market_qty_revised == market_qty else \
+            (not is_false) or \
+            (is_false and conviction_score >= 0.7)
 
         was_executed = False
         if should_trade:
             logger.info(f"[TRADE CONFIRMED] {symbol} {direction} @ {entry_price} with score {conviction_score}")
-            await callback()
+            await callback(market_qty_revised)
             was_executed = True
         else:
             reason = "false_signal" if is_false else "low_confidence"
@@ -234,7 +240,6 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
 
     except Exception as e:
         logger.error(f"[VALIDATION ERROR] {symbol}: {e}")
-
 
 # async def validate_and_process_signal(symbol: str, entry_price: float, direction: str, interval: str,
 #                                       signal_time: datetime, callback):

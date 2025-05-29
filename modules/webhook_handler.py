@@ -55,7 +55,7 @@ async def webhook_handler(symbol):
         signal_time = datetime.utcnow()
         entry = parsed["entry_price"]
 
-        async def process_trade():
+        async def process_trade(market_qty_revised):
             # Create a new pending position or get a open position if exists.
             if await is_duplicate_signal(symbol, direction):
                 logger.warning(f"[DUPLICATE] Signal skipped for {symbol}-{direction}")
@@ -89,13 +89,12 @@ async def webhook_handler(symbol):
                 # tp1 = parsed["take_profits"][0]
                 # sl = parsed["stop_loss"]
 
-                market_qty = override_qty if override_qty else 10
+                # market_qty = override_qty if override_qty else 10
                 logger.info(
                     f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, \
-                        price={entry}, qty={market_qty}")
+                        price={entry}, qty_revised={market_qty_revised} base_qty={override_qty}")
                 retries = 3
-                market_qty_revised = await evaluate_signal_received(symbol, direction, market_qty,
-                                                                    interval)
+
                 for attempt in range(retries):
                     logger.info(f"[TEST TRACE] Reverse? {state}, Revised Qty: {market_qty_revised}")
                     response = await place_order(
@@ -118,17 +117,17 @@ async def webhook_handler(symbol):
 
                 logger.info(
                     f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, \
-                        price={zone_start}, qty={override_qty or 10}")
-                await place_order(symbol=symbol, side=direction, price=zone_start, qty=override_qty or 10,
+                        price={zone_start}, qty={market_qty_revised or 10}")
+                await place_order(symbol=symbol, side=direction, price=zone_start, qty=market_qty_revised or 10,
                                   order_type="LIMIT")
 
                 logger.info(
                     f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, \
-                        price={zone_middle}, qty={override_qty or 10}")
-                await place_order(symbol=symbol, side=direction, price=zone_middle, qty=override_qty or 10,
+                        price={zone_middle}, qty={market_qty_revised or 10}")
+                await place_order(symbol=symbol, side=direction, price=zone_middle, qty=market_qty_revised or 10,
                                   order_type="LIMIT")
 
-                bottom_qty = (override_qty * 2 if override_qty else 20)
+                bottom_qty = (market_qty_revised * 2 if market_qty_revised else 20)
                 logger.info(
                     f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, \
                         price={zone_bottom}, qty={bottom_qty}")
@@ -139,7 +138,7 @@ async def webhook_handler(symbol):
 
         async def wrapped_process():
             await validate_and_process_signal(
-                symbol, entry, direction, interval, signal_time, process_trade
+                symbol, entry, direction, interval, signal_time, override_qty,  process_trade
             )
 
         asyncio.create_task(wrapped_process())
