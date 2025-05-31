@@ -198,14 +198,6 @@ async def handle_ws_message(message):
                 position_id = pos_event.get("positionId")
                 interval = state.get("interval", "5m")
                 try:
-                    await cancel_all_new_orders(symbol, direction)
-                    await update_position_state(symbol, direction, position_id, {
-                        "status": "CLOSED"
-                    })
-                    await delete_position_state(symbol, direction, position_id)
-                except Exception as cancel_err:
-                    logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
-                try:
                     is_sl = True if realized_pnl < -0.3 else False
                     if is_sl:
                         buffer_key = f"reverse_loss:{symbol}:{direction}:{interval}"
@@ -229,6 +221,14 @@ async def handle_ws_message(message):
                         await r.delete(f"reverse_loss:{symbol}:{direction}:{interval}")
                 except Exception as log_pnl_error:
                     logger.info(f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}")
+                try:
+                    await cancel_all_new_orders(symbol, direction)
+                    await update_position_state(symbol, direction, position_id, {
+                        "status": "CLOSED"
+                    })
+                    await delete_position_state(symbol, direction, position_id)
+                except Exception as cancel_err:
+                    logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
 
         elif topic == "tpsl":
             try:

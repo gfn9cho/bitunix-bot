@@ -206,7 +206,7 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
 
         # Decision thresholds
         should_trade = (not is_false and conviction_score >= 0.0) or \
-                       (is_false and conviction_score >= 0.7) if market_qty_revised == market_qty else \
+                       (is_false and conviction_score >= 0.4) if market_qty_revised == market_qty else \
             (not is_false) or \
             (is_false and conviction_score >= 0.7)
 
