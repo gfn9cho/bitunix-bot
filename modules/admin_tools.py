@@ -65,17 +65,6 @@ async def get_key_state(key):
         return jsonify({"error": str(e)}), 500
 
 
-@admin_tools.route("/debug/redis-state/<path:key>", methods=["POST"])
-async def update_key_state(key):
-    try:
-        r = get_redis()
-        new_state = await request.get_json()
-        await r.set(key, json.dumps(new_state))
-        return jsonify({"status": "updated", "key": key}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 @admin_tools.route("/debug/redis-delete/<path:key>", methods=["DELETE"])
 async def delete_key(key):
     try:
