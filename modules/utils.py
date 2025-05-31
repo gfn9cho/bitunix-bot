@@ -359,7 +359,7 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
         logger.info(f"[REVERSE CHECK] No open {opposite_direction} position for {symbol}. Deleting stale state.")
         await delete_position_state(symbol, opposite_direction, "")
         # Check for buffered reversal quantity
-        buffer_key = f"recent_close:{symbol}:{opposite_direction}"
+        buffer_key = f"reverse_loss:{symbol}:{opposite_direction}:{new_interval}"
         r = get_redis()
         buffer_raw = await r.get(buffer_key)
         if buffer_raw:
@@ -380,8 +380,8 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
     if action == "reverse":
         logger.info(f"[REVERSAL DETECTED] Closing {opposite_direction} position on {symbol} to open {new_direction}")
         try:
-            await close_all_positions(symbol)
-            await close_all_positions(symbol)
+            if await flash_close_positions(symbol, position_id) == "failed":
+                await flash_close_positions(symbol, position_id)
             await update_position_state(symbol, opposite_direction, position_id, {"status": "CLOSED"})
             await delete_position_state(symbol, opposite_direction, position_id)
             total_qty = existing_state["total_qty"] + new_qty
@@ -389,6 +389,9 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
         except Exception as e:
             logger.error(f"[REVERSAL ERROR] Failed to close and flip position for {symbol}: {e}")
             return new_qty
+    elif action == "open":
+        logger.info(f"[LOW INTERVAL SIGNAL] Opening {new_direction} position on {symbol} at interval {new_interval}")
+        return round(existing_state["total_qty"] + new_qty, 3)
 
     # CASE 3: Reversal NOT allowed — keep OPEN state intact and upgrade with new qty and price
     logger.info(f"[REVERSE CHECK] No reversal permitted for {symbol}. Existing opposite position retained.")
@@ -410,7 +413,7 @@ def evaluate_multi_timeframe_strategy(
 
     Returns:
         {
-            "action": "ignore" | "upgrade" | "reverse",
+            "action": "ignore" | "upgrade" | "reverse" | "open",
             "reverse_qty": float  # only used if action == "reverse"
         }
     """
@@ -421,12 +424,11 @@ def evaluate_multi_timeframe_strategy(
         if existing_rank >= new_rank:
             return {"action": "ignore", "reverse_qty": 0}
         return {"action": "upgrade", "reverse_qty": 0}
-
     # Opposite direction: consider reversal only if new is higher ranked
-    if existing_rank <= new_rank:
+    elif existing_rank <= new_rank:
         return {"action": "reverse", "reverse_qty": existing_qty}
-
-    return {"action": "ignore", "reverse_qty": 0}
+    else:
+        return {"action": "open", "reverse_qty": 0}
 
 
 async def maybe_reverse_position(symbol: str, new_direction: str):
@@ -581,6 +583,7 @@ async def is_duplicate_signal(symbol, direction, buffer_secs=5):
         return True  # already locked
     return False
 
+
 async def close_all_positions(symbol):
     close_position_payload = {
         "symbol": symbol
@@ -612,6 +615,45 @@ async def close_all_positions(symbol):
         logger.error(f"[ORDER CANCEL FAILED] {e}")
         if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
             logger.error(f"[ORDER CANCEL FAILED] Response: {e.response.text}")
+        return None
+
+
+async def flash_close_positions(symbol, position_id):
+    close_position_payload = {
+        "positionId": position_id
+    }
+
+    close_position_nonce = base64.b64encode(secrets.token_bytes(32)).decode()
+    close_position_ts = str(int(time.time() * 1000))
+    close_position_body = json.dumps(close_position_payload, separators=(',', ':'))
+    close_position_digest = hashlib.sha256((close_position_nonce + close_position_ts + API_KEY + close_position_body).encode()).hexdigest()
+    close_position_sign = hashlib.sha256((close_position_digest + API_SECRET).encode()).hexdigest()
+
+    close_position_headers = {
+        "api-key": API_KEY,
+        "sign": close_position_sign,
+        "nonce": close_position_nonce,
+        "timestamp": close_position_ts,
+        "Content-Type": "application/json"
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            close_position_response = await client.post(
+                f"{BASE_URL}/api/v1/futures/trade/flash_close_position",
+                headers=close_position_headers,
+                content=close_position_body
+            )
+            close_position_response.raise_for_status()
+            if close_position_response.json().get("code") != 0:
+                logger.warning(f"[FLASH CLOSE IGNORED] {symbol} {position_id}: {close_position_response.json().get('msg')}")
+                return "failed"
+            else:
+                logger.info(f"[FLASH CLOSE SUCCESS] {symbol} {position_id}: {close_position_response.json()}")
+                return "success"
+    except httpx.RequestError as e:
+        logger.error(f"[FLASH CLOSE FAILED] {e}")
+        if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+            logger.error(f"[FLASH CLOSE FAILED] Response: {e.response.text}")
         return None
 
 

@@ -196,6 +196,7 @@ async def handle_ws_message(message):
             if position_event == "CLOSE" and new_qty == 0:
                 realized_pnl = float(pos_event.get("realizedPNL"))
                 position_id = pos_event.get("positionId")
+                interval = state.get("interval", "5m")
                 try:
                     await cancel_all_new_orders(symbol, direction)
                     await update_position_state(symbol, direction, position_id, {
@@ -205,22 +206,27 @@ async def handle_ws_message(message):
                 except Exception as cancel_err:
                     logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
                 try:
-                    is_sl = True if realized_pnl < -1.0 else False
+                    is_sl = True if realized_pnl < -0.3 else False
                     if is_sl:
-                        buffer_key = f"recent_close:{symbol}:{direction}"
+                        buffer_key = f"reverse_loss:{symbol}:{direction}:{interval}"
+                        if old_qty == 0:
+                            old_qty = get_or_create_symbol_direction_state(symbol, direction, position_id)
                         buffer_value = {
                             "qty": old_qty,
+                            "interval": interval,
                             "closed_at": datetime.utcnow().isoformat()
                         }
-                        interval = state.get("interval", "5m")
-                        interval_minutes = INTERVAL_MINUTES.get(interval, 5)
-                        buffer_ttl = interval_minutes * 60 + 15
+                        # interval_minutes = INTERVAL_MINUTES.get(interval, 5)
+                        # buffer_ttl = interval_minutes * 60 + 15
                         r = get_redis()
-                        await r.set(buffer_key, json.dumps(buffer_value), ex=buffer_ttl)
-                        logger.info(f"[BUFFERED SL CLOSE] {symbol}-{direction} qty={old_qty}")
+                        await r.set(buffer_key, json.dumps(buffer_value))
+                        logger.info(f"[BUFFERED SL CLOSE] {symbol}-{direction} qty={old_qty} interval={interval}")
                         log_profit_loss(symbol, direction, str(position_id), round(realized_pnl, 4),
                                         "PROFIT" if realized_pnl > 0 else "LOSS",
                                         ctime, log_date)
+                    else:
+                        r = get_redis()
+                        await r.delete(f"reverse_loss:{symbol}:{direction}:{interval}")
                 except Exception as log_pnl_error:
                     logger.info(f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}")
 
