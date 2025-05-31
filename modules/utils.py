@@ -391,7 +391,7 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
             return new_qty
     elif action == "open":
         logger.info(f"[LOW INTERVAL SIGNAL] Opening {new_direction} position on {symbol} at interval {new_interval}")
-        return round(existing_state["total_qty"] + new_qty, 3)
+        return 2 * new_qty
 
     # CASE 3: Reversal NOT allowed — keep OPEN state intact and upgrade with new qty and price
     logger.info(f"[REVERSE CHECK] No reversal permitted for {symbol}. Existing opposite position retained.")
