@@ -210,7 +210,7 @@ async def handle_ws_message(message):
                     if is_sl:
                         buffer_key = f"reverse_loss:{symbol}:{direction}:{interval}"
                         if old_qty == 0:
-                            old_qty = get_or_create_symbol_direction_state(symbol, direction, position_id)
+                            old_qty = await get_or_create_symbol_direction_state(symbol, direction, position_id)
                         buffer_value = {
                             "qty": old_qty,
                             "interval": interval,
