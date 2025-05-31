@@ -17,7 +17,7 @@ async def list_redis_keys():
 
 
 @admin_tools.route("/debug/redis-reversal-keys", methods=["GET"])
-async def list_redis_keys():
+async def list_redis_reversal_keys():
     r = get_redis()
     keys = await r.keys("reverse_loss:*")
     return jsonify({
