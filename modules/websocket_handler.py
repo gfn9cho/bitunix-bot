@@ -213,9 +213,6 @@ async def handle_ws_message(message):
                         r = get_redis()
                         await r.set(buffer_key, json.dumps(buffer_value))
                         logger.info(f"[BUFFERED SL CLOSE] {symbol}-{direction} qty={old_qty} interval={interval}")
-                        log_profit_loss(symbol, direction, str(position_id), round(realized_pnl, 4),
-                                        "PROFIT" if realized_pnl > 0 else "LOSS",
-                                        ctime, log_date)
                     else:
                         r = get_redis()
                         await r.delete(f"reverse_loss:{symbol}:{direction}:{interval}")
@@ -227,6 +224,9 @@ async def handle_ws_message(message):
                         "status": "CLOSED"
                     })
                     await delete_position_state(symbol, direction, position_id)
+                    log_profit_loss(symbol, direction, str(position_id), round(realized_pnl, 4),
+                                    "PROFIT" if realized_pnl > 0 else "LOSS",
+                                    ctime, log_date)
                 except Exception as cancel_err:
                     logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
 
