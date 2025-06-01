@@ -140,8 +140,9 @@ async def get_volume_trend(symbol: str, interval: str = "5m", lookback: int = 5)
 
 async def get_high_conviction_score(symbol: str, direction: str, interval: str = "5m") -> dict:
     try:
+        actual_interval = "1m" if interval == "3m" else interval
         url = f"{BASE_URL}/api/v1/futures/market/kline"
-        params = {"symbol": symbol.upper(), "interval": interval, "limit": 5}
+        params = {"symbol": symbol.upper(), "interval": actual_interval, "limit": 5}
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(url, params=params)

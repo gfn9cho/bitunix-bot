@@ -194,15 +194,15 @@ async def handle_ws_message(message):
                     logger.warning(f"[STATE UPDATE ERROR on qty increase] {e}")
 
             if position_event == "CLOSE" and new_qty == 0:
+                state = await get_or_create_symbol_direction_state(symbol, direction, position_id)
                 realized_pnl = float(pos_event.get("realizedPNL"))
                 position_id = pos_event.get("positionId")
+                old_qty = state.get("total_qty", 0)
                 interval = state.get("interval", "5m")
                 try:
                     is_sl = True if realized_pnl < -0.3 else False
                     if is_sl:
                         buffer_key = f"reverse_loss:{symbol}:{direction}:{interval}"
-                        if old_qty == 0:
-                            old_qty = await get_or_create_symbol_direction_state(symbol, direction, position_id)
                         buffer_value = {
                             "qty": old_qty,
                             "interval": interval,

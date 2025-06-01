@@ -114,24 +114,31 @@ async def webhook_handler(symbol):
                         f"[ORDER FAILURE] Attempt {attempt + 1}/{retries} - symbol={symbol}, \
                             direction={direction}, response={response}")
                     time.sleep(1)
+                if market_qty_revised <= override_qty:
+                    logger.info(
+                        f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, \
+                            price={zone_start}, qty={market_qty_revised or 10}")
+                    await place_order(symbol=symbol, side=direction, price=zone_start, qty=market_qty_revised or 10,
+                                      order_type="LIMIT")
 
-                logger.info(
-                    f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, \
-                        price={zone_start}, qty={market_qty_revised or 10}")
-                await place_order(symbol=symbol, side=direction, price=zone_start, qty=market_qty_revised or 10,
-                                  order_type="LIMIT")
+                    logger.info(
+                        f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, \
+                            price={zone_middle}, qty={market_qty_revised or 10}")
+                    await place_order(symbol=symbol, side=direction, price=zone_middle, qty=market_qty_revised or 10,
+                                      order_type="LIMIT")
 
-                logger.info(
-                    f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, \
-                        price={zone_middle}, qty={market_qty_revised or 10}")
-                await place_order(symbol=symbol, side=direction, price=zone_middle, qty=market_qty_revised or 10,
-                                  order_type="LIMIT")
-
-                bottom_qty = (market_qty_revised * 2 if market_qty_revised else 20)
-                logger.info(
-                    f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, \
-                        price={zone_bottom}, qty={bottom_qty}")
-                await place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
+                    bottom_qty = (market_qty_revised * 2 if market_qty_revised else 20)
+                    logger.info(
+                        f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, \
+                            price={zone_bottom}, qty={bottom_qty}")
+                    await place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
+                else:
+                     # Submit only one limit order for reversal
+                    bottom_qty = (market_qty_revised * 2 if market_qty_revised else 20)
+                    logger.info(
+                        f"[ORDER SUBMIT FOR REVERSAL] Limit order 3: symbol={symbol}, direction={direction}, \
+                                                price={zone_bottom}, qty={bottom_qty}")
+                    await place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
             else:
                 # await delete_position_state(symbol, direction)
                 logger.info(f"[TRADE SKIP]: As the existing position is open and in TP stage")
