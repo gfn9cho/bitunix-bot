@@ -55,7 +55,7 @@ async def webhook_handler(symbol):
         signal_time = datetime.utcnow()
         entry = parsed["entry_price"]
 
-        async def process_trade(market_qty_revised):
+        async def process_trade(market_qty_revised, trade_action):
             # Create a new pending position or get a open position if exists.
             if await is_duplicate_signal(symbol, direction):
                 logger.warning(f"[DUPLICATE] Signal skipped for {symbol}-{direction}")
@@ -72,7 +72,7 @@ async def webhook_handler(symbol):
             new_signal_sl = parsed["stop_loss"]
             sl_threshold = new_signal_sl <= position_sl if direction == "BUY" else new_signal_sl >= position_sl
             if (position_step == 0 and position_status == "OPEN" and sl_threshold) \
-                    or position_status == "PENDING":
+                    or position_status == "PENDING" or trade_action != "IGNORE":
 
                 state["tps"] = parsed["take_profits"]
                 state["entry_price"] = parsed["entry_price"]
@@ -82,6 +82,7 @@ async def webhook_handler(symbol):
                 state["created_at"] = datetime.utcnow().isoformat()
                 state["interval"] = interval
                 state["signal_time"] = signal_time
+                state["trade_action"] = trade_action
 
                 zone_start, zone_bottom = parsed["accumulation_zone"]
                 logger.info(f"[ACC ZONES]: {zone_start}: {zone_bottom}")
@@ -106,7 +107,10 @@ async def webhook_handler(symbol):
                         private=True
                     )
                     if response and response.get("code", -1) == 0:
-                        await update_position_state(symbol, direction, '', state)
+                        limit_orders_len = 3 if market_qty_revised <= override_qty else 1
+                        state["limit_order_len"] = limit_orders_len
+                        position_id = state.get("position_id", "")
+                        await update_position_state(symbol, direction, position_id, state)
                         logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
                         logger.info(f"[TEST TRACE] ORDER RESPONSE: {response}")
                         break

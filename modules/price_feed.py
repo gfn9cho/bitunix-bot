@@ -189,8 +189,10 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
         # Run checks concurrently
         is_false_task = is_false_signal(symbol, entry_price, direction, interval, signal_time)
         conviction_data_task = get_high_conviction_score(symbol, direction, interval)
-        market_qty_revised = await evaluate_signal_received(symbol, direction, market_qty,
-                                                            interval)
+        market_qty_revised_res = await evaluate_signal_received(symbol, direction, market_qty,
+                                                                interval)
+        market_qty_revised = market_qty_revised_res.get("reverse_qty", 0)
+        trade_action = market_qty_revised_res.get("action", "ignore")
         is_false_res, conviction_data = await asyncio.gather(is_false_task, conviction_data_task)
         is_false = is_false_res["is_valid"]
         close_price = is_false_res["close_price"]
@@ -213,7 +215,7 @@ async def validate_and_process_signal(symbol: str, entry_price: float, direction
         was_executed = False
         if should_trade:
             logger.info(f"[TRADE CONFIRMED] {symbol} {direction} @ {entry_price} with score {conviction_score}")
-            await callback(market_qty_revised)
+            await callback(market_qty_revised, trade_action.upper())
             was_executed = True
         else:
             reason = "false_signal" if is_false else "low_confidence"

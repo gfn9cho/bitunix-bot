@@ -356,7 +356,7 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
         )
     # CASE 1: Cleanup stale state if it’s not OPEN
     else:
-        logger.info(f"[REVERSE CHECK] No open {opposite_direction} position for {symbol}. Deleting stale state.")
+        logger.info(f"[REVERSE BUFFER CHECK] No open {opposite_direction} position for {symbol}. Deleting stale state.")
         await delete_position_state(symbol, opposite_direction, "")
         # Check for buffered reversal quantity
         buffer_key = f"reverse_loss:{symbol}:{opposite_direction}:{new_interval}"
@@ -371,7 +371,7 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
                 logger.info(f"[REVERSE BUFFER APPLIED] {symbol}-{new_direction} +{buffered_qty}")
             except Exception as buffer_error:
                 logger.warning(f"[BUFFER ERROR] Failed to apply buffered quantity for {symbol}: {buffer_error}")
-        return new_qty
+        return {"action": "open", "reverse_qty": new_qty}
 
     action = result["action"]
     position_id = existing_state.get("position_id") if existing_state else ""
@@ -382,20 +382,23 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
         try:
             if await flash_close_positions(symbol, position_id) == "failed":
                 await flash_close_positions(symbol, position_id)
-            await update_position_state(symbol, opposite_direction, position_id, {"status": "CLOSED"})
-            await delete_position_state(symbol, opposite_direction, position_id)
+            # await update_position_state(symbol, opposite_direction, position_id, {"status": "CLOSED"})
+            # await delete_position_state(symbol, opposite_direction, position_id)
             total_qty = existing_state["total_qty"] + new_qty
-            return round(total_qty, 3)
+            return {"action": "reverse", "reverse_qty": round(total_qty, 3)}
         except Exception as e:
             logger.error(f"[REVERSAL ERROR] Failed to close and flip position for {symbol}: {e}")
-            return new_qty
+            total_qty = existing_state["total_qty"] + new_qty
+            return {"action": "reverse", "reverse_qty": round(total_qty, 3)}
     elif action == "open":
         logger.info(f"[LOW INTERVAL SIGNAL] Opening {new_direction} position on {symbol} at interval {new_interval}")
-        return 2 * new_qty
-
+        return {"action": "open", "reverse_qty": new_qty}
+    elif action == "upgrade":
+        logger.info(f"[LOW INTERVAL SIGNAL] Upgrading {new_direction} position on {symbol} at interval {new_interval}")
+        return {"action": "upgrade", "reverse_qty": new_qty}
     # CASE 3: Reversal NOT allowed — keep OPEN state intact and upgrade with new qty and price
     logger.info(f"[REVERSE CHECK] No reversal permitted for {symbol}. Existing opposite position retained.")
-    return new_qty
+    return {"action": "ignore", "reverse_qty": new_qty}
 
 
 TIMEFRAME_RANK = {"3m": 1, "5m": 2, "15m": 3, "1h": 4, "4h": 5, "1d": 6}

@@ -172,16 +172,34 @@ async def handle_ws_message(message):
 
             # New logic: if position qty increases after step > 0, update TP/SL
             if position_event == "UPDATE" and new_qty > old_qty > 0:
-                for tp_label, order_id in state["tp_orders"].items():
-                    step_index = int(tp_label.replace("TP", "")) - 1
-                    tp_price = state["tps"][step_index]
-                    tp_qty = round(new_qty * TP_DISTRIBUTION[step_index], 3)
-                    logger.info(
-                        f"[TP/SL UPDATED ON QTY INCREASE] {symbol} {direction} Step {step_index} TP: {tp_price}, TPQty: {tp_qty}")
-                    await update_tp_quantity(order_id, symbol, tp_qty, tp_price)
-                sl_order_id = state.get("sl_order_id")
-                sl_price = state["stop_loss"]
-                await update_sl_price(sl_order_id, direction, symbol, sl_price, new_qty)
+                avg_entry = state.get("entry_price", 0)
+                tp_acc_zone_id = state.get("tp_acc_zone")
+                trade_action = state.get("trade_action").lower()
+                limit_order_len = state.get("limit_order_len", 0)
+                if trade_action and trade_action == "upgrade" and (limit_order_len == 1 or limit_order_len == 3):
+                    for tp_label, order_id in state["tp_orders"].items():
+                        step_index = int(tp_label.replace("TP", "")) - 1
+                        tp_price = state["tps"][step_index]
+                        tp_qty = round(new_qty * TP_DISTRIBUTION[step_index], 3)
+                        logger.info(
+                            f"[TP/SL UPDATED ON QTY INCREASE] {symbol} {direction} Step {step_index} TP: {tp_price}, TPQty: {tp_qty}")
+                        await update_tp_quantity(order_id, symbol, tp_qty, tp_price)
+                        state["limit_order_len"] = limit_order_len - 1
+                else:
+                    if not tp_acc_zone_id:
+                        logger.info(
+                                f"[TP/SL OPEN FOR ACC ENTRIES] {symbol} {direction} TP: {avg_entry}, TPQty: {new_qty}")
+                        order_id = await place_tp_sl_order_async(symbol, tp_price=avg_entry, sl_price=None,
+                                                      position_id=position_id, tp_qty=new_qty, qty=new_qty)
+                        if order_id:
+                            state.setdefault("tp_acc_zone", order_id)
+                    else:
+                        logger.info(
+                            f"[TP/SL UPDATE FOR ACC ENTRIES] {symbol} {direction} TP: {avg_entry}, TPQty: {new_qty}")
+                        await update_tp_quantity(tp_acc_zone_id, symbol, new_qty, avg_entry)
+                    sl_order_id = state.get("sl_order_id")
+                    sl_price = state["stop_loss"]
+                    await update_sl_price(sl_order_id, direction, symbol, sl_price, new_qty)
                 try:
                     position_margin = float(pos_event.get("margin"))
                     position_leverage = float(pos_event.get("leverage", 20))
@@ -231,6 +249,7 @@ async def handle_ws_message(message):
                     logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
 
         elif topic == "tpsl":
+            # This flow handles only take profit event.
             try:
                 tp_data = data.get("data", {})
                 event = tp_data.get("event")
