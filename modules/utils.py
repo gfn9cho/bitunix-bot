@@ -353,7 +353,6 @@ async def get_total_buffered_loss(symbol: str, direction: str) -> float:
                 # keys_consumed.append(key)
             except Exception as e:
                 print(f"[REDIS ERROR] Failed to parse buffer for {key}: {e}")
-
     return total_qty
 
 
@@ -380,9 +379,9 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
         await delete_position_state(symbol, opposite_direction, "")
         # Check for buffered reversal quantity
         # buffer_key = f"reverse_loss:{symbol}:{opposite_direction}:{new_interval}"
-        r = get_redis()
+        # r = get_redis()
         # buffer_raw = await r.get(buffer_key)
-        previous_loss_qty = get_total_buffered_loss(symbol, new_direction)
+        previous_loss_qty = await get_total_buffered_loss(symbol, new_direction)
         if previous_loss_qty:
             new_qty += previous_loss_qty
         logger.info(f"[REVERSE BUFFER APPLIED] {symbol}-{new_direction} +{previous_loss_qty}")
