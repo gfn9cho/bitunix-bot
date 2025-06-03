@@ -683,6 +683,39 @@ async def flash_close_positions(symbol, position_id):
         return None
 
 
+async def get_order_detail(order_id):
+    # Step 1: Prepare authentication and GET headers
+    method = "get"
+    data = {"orderId": order_id}
+    nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
+    timestamp = str(int(time.time() * 1000))
+    signature = generate_get_sign_api(nonce, timestamp, method, data)
+
+    headers = {
+        "api-key": API_KEY,
+        "sign": signature,
+        "nonce": nonce,
+        "timestamp": timestamp,
+        "language": "en-US",
+        "Content-Type": "application/json"
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{BASE_URL}/api/v1/futures/trade/get_order_detail",
+                headers=headers,
+                params=data
+            )
+            response.raise_for_status()
+            order_entry_price = response.json().get("data", {}).get("price", 0.0)
+            return float(round(order_entry_price, 6))
+    except httpx.RequestError as e:
+        logger.error(f"[PENDING ORDER CAPTURE FAILED] {e}")
+        if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+            logger.error(f"[PENDING ORDER CAPTURE FAILED] Response: {e.response.text}")
+        return 0.0
+
+
 async def cancel_all_new_orders(symbol, direction, context="tp"):
     try:
         # Map direction to Bitunix side string

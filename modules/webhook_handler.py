@@ -11,7 +11,8 @@ from modules.price_feed import validate_and_process_signal
 from modules.redis_client import get_redis
 from modules.redis_state_manager import get_or_create_symbol_direction_state, \
                                         update_position_state, delete_position_state
-from modules.utils import parse_signal, place_order, is_duplicate_signal, maybe_reverse_position, evaluate_signal_received
+from modules.utils import parse_signal, place_order, is_duplicate_signal, maybe_reverse_position, \
+    evaluate_signal_received, get_order_detail
 from modules.signal_limiter import should_accept_signal
 
 
@@ -119,6 +120,9 @@ async def webhook_handler(symbol):
                     )
                     if response and response.get("code", -1) == 0:
                         limit_orders_len = 3 if market_qty_revised <= override_qty else 1
+                        order_id = response.get("data", {}).get("order_id")
+                        if order_id:
+                            state["entry_price"] = await get_order_detail(order_id)
                         state["limit_order_len"] = limit_orders_len
                         position_id = state.get("position_id", "")
                         await update_position_state(symbol, direction, position_id, state)

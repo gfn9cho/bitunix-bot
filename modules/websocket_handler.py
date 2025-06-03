@@ -203,11 +203,11 @@ async def handle_ws_message(message):
                 sl_price = state["stop_loss"]
                 await update_sl_price(sl_order_id, direction, symbol, sl_price, new_qty)
                 try:
-                    position_margin = float(pos_event.get("margin"))
-                    position_leverage = float(pos_event.get("leverage", 20))
-                    position_fee = float(pos_event.get("fee"))
-                    avg_entry = ((position_margin * position_leverage) + position_fee) / new_qty
-                    state["entry_price"] = round(avg_entry, 6)
+                    # position_margin = float(pos_event.get("margin"))
+                    # position_leverage = float(pos_event.get("leverage", 20))
+                    # position_fee = float(pos_event.get("fee"))
+                    # avg_entry = ((position_margin * position_leverage) + position_fee) / new_qty
+                    # state["entry_price"] = round(avg_entry, 6)
                     state["total_qty"] = round(new_qty, 3)
                     await update_position_state(symbol, direction, position_id, state)
                 except Exception as e:
@@ -308,6 +308,5 @@ async def handle_ws_message(message):
                 await update_position_state(symbol, position_direction, position_id, state)
             except Exception as e:
                 logger.error(f"[TP_SL CHANNEL ERROR] {e}")
-
     except Exception as e:
         logger.error(f"WebSocket message handler error: {str(e)}")
