@@ -338,6 +338,26 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
         return None
 
 
+async def get_total_buffered_loss(symbol: str, direction: str) -> float:
+    pattern = f"reverse_loss:{symbol}:{direction}:*"
+    total_qty = 0.0
+    # keys_consumed = []
+    r = get_redis()
+    async for key in r.scan_iter(match=pattern):
+        value = await r.get(key)
+        if value:
+            try:
+                data = json.loads(value)
+                qty = float(data.get("qty", 0))
+                total_qty += qty
+                # keys_consumed.append(key)
+            except Exception as e:
+                print(f"[REDIS ERROR] Failed to parse buffer for {key}: {e}")
+
+    return total_qty
+
+
+
 async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: float, new_interval: str):
     """
     Evaluates whether a reversal is needed based on multi-timeframe rank.
@@ -359,18 +379,22 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
         logger.info(f"[REVERSE BUFFER CHECK] No open {opposite_direction} position for {symbol}. Deleting stale state.")
         await delete_position_state(symbol, opposite_direction, "")
         # Check for buffered reversal quantity
-        buffer_key = f"reverse_loss:{symbol}:{opposite_direction}:{new_interval}"
+        # buffer_key = f"reverse_loss:{symbol}:{opposite_direction}:{new_interval}"
         r = get_redis()
-        buffer_raw = await r.get(buffer_key)
-        if buffer_raw:
-            try:
-                buffer_data = json.loads(buffer_raw)
-                buffered_qty = float(buffer_data.get("qty", 0))
-                new_qty += buffered_qty
-                await r.delete(buffer_key)
-                logger.info(f"[REVERSE BUFFER APPLIED] {symbol}-{new_direction} +{buffered_qty}")
-            except Exception as buffer_error:
-                logger.warning(f"[BUFFER ERROR] Failed to apply buffered quantity for {symbol}: {buffer_error}")
+        # buffer_raw = await r.get(buffer_key)
+        previous_loss_qty = get_total_buffered_loss(symbol, new_direction)
+        if previous_loss_qty:
+            new_qty += previous_loss_qty
+        logger.info(f"[REVERSE BUFFER APPLIED] {symbol}-{new_direction} +{previous_loss_qty}")
+        # if buffer_raw:
+        #     try:
+        #         buffer_data = json.loads(buffer_raw)
+        #         buffered_qty = float(buffer_data.get("qty", 0))
+        #         new_qty += buffered_qty
+        #         await r.delete(buffer_key)
+        #         logger.info(f"[REVERSE BUFFER APPLIED] {symbol}-{new_direction} +{buffered_qty}")
+        #     except Exception as buffer_error:
+        #         logger.warning(f"[BUFFER ERROR] Failed to apply buffered quantity for {symbol}: {buffer_error}")
         return {"action": "open", "reverse_qty": new_qty}
 
     action = result["action"]

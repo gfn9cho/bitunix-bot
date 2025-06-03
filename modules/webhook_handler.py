@@ -8,10 +8,20 @@ from modules.logger_config import logger, error_logger
 from modules.loss_tracking import is_daily_loss_limit_exceeded
 from modules.price_feed import validate_and_process_signal
 # from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
+from modules.redis_client import get_redis
 from modules.redis_state_manager import get_or_create_symbol_direction_state, \
                                         update_position_state, delete_position_state
 from modules.utils import parse_signal, place_order, is_duplicate_signal, maybe_reverse_position, evaluate_signal_received
 from modules.signal_limiter import should_accept_signal
+
+
+async def clear_buffered_loss_keys(symbol: str, direction: str):
+    r = get_redis()
+    pattern = f"reverse_loss:{symbol}:{direction}:*"
+    async for key in r.scan_iter(match=pattern):
+        await r.delete(key)
+        logger.info(f"[BUFFER CLEARED] Deleted {key}")
+
 
 
 async def webhook_handler(symbol):
@@ -112,7 +122,7 @@ async def webhook_handler(symbol):
                         state["limit_order_len"] = limit_orders_len
                         position_id = state.get("position_id", "")
                         await update_position_state(symbol, direction, position_id, state)
-                        logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
+                        # logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
                         logger.info(f"[TEST TRACE] ORDER RESPONSE: {response}")
                         break
                     error_logger.error(
@@ -138,7 +148,9 @@ async def webhook_handler(symbol):
                             price={zone_bottom}, qty={bottom_qty}")
                     await place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
                 else:
-                     # Submit only one limit order for reversal
+                    # Clear buffer keys used for reversal or uprade
+                    await clear_buffered_loss_keys(symbol, direction)
+                    # Submit only one limit order for reversal
                     bottom_qty = (market_qty_revised * 2 if market_qty_revised else 20)
                     logger.info(
                         f"[ORDER SUBMIT FOR REVERSAL] Limit order 3: symbol={symbol}, direction={direction}, \

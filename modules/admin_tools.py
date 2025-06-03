@@ -65,6 +65,21 @@ async def get_key_state(key):
         return jsonify({"error": str(e)}), 500
 
 
+@admin_tools.route("/debug/redis-states/<path:pattern>", methods=["GET"])
+async def get_all_key_state(pattern):
+    try:
+        r = get_redis()
+        all_keys = []
+        for key in r.scan_iter(pattern):
+            value = await r.get(key)
+            if value is None:
+                return jsonify({"error": "Key not found"}), 404
+            all_keys.append(jsonify({"key": key, "value": json.loads(value)})), 200
+        return all_keys
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @admin_tools.route("/debug/redis-delete/<path:key>", methods=["DELETE"])
 async def delete_key(key):
     try:
