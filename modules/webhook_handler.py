@@ -81,6 +81,7 @@ async def webhook_handler(symbol):
             position_step = state.get("step")
             position_sl = state.get("stop_loss")
             new_signal_sl = parsed["stop_loss"]
+            position_existing_qty = state.get("total_qty",0)
             sl_threshold = new_signal_sl <= position_sl if direction == "BUY" else new_signal_sl >= position_sl
             if (position_step == 0 and position_status == "OPEN" and sl_threshold) \
                     or position_status == "PENDING" or trade_action != "IGNORE":
@@ -95,7 +96,7 @@ async def webhook_handler(symbol):
                 state["signal_time"] = signal_time
                 state["trade_action"] = trade_action
                 state["revised_qty"] = market_qty_revised
-                state["total_qty"] = market_qty_revised
+                state["total_qty"] = position_existing_qty + market_qty_revised
 
                 zone_start, zone_bottom = parsed["accumulation_zone"]
                 logger.info(f"[ACC ZONES]: {zone_start}: {zone_bottom}")
@@ -111,6 +112,9 @@ async def webhook_handler(symbol):
 
                 for attempt in range(retries):
                     logger.info(f"[TEST TRACE] Reverse? {state}, Revised Qty: {market_qty_revised}")
+                    state["order_type"] = "market"
+                    position_id = state.get("position_id", "")
+                    await update_position_state(symbol, direction, position_id, state)
                     response = await place_order(
                         symbol=symbol,
                         side=direction,
@@ -120,12 +124,9 @@ async def webhook_handler(symbol):
                         private=True
                     )
                     if response and response.get("code", -1) == 0:
-                        limit_orders_len = 3 if market_qty_revised <= override_qty else 1
                         order_id = response.get("data", {}).get("order_id")
                         if order_id:
                             state["entry_price"] = await get_order_detail(order_id)
-                        state["limit_order_len"] = limit_orders_len
-                        position_id = state.get("position_id", "")
                         await update_position_state(symbol, direction, position_id, state)
                         # logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
                         logger.info(f"[TEST TRACE] ORDER RESPONSE: {response}")

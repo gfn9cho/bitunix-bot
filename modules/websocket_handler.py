@@ -144,8 +144,9 @@ async def handle_ws_message(message):
                 # Have to adjust and get it from order position or make a call to order.
                 avg_entry = ((position_margin * position_leverage) + position_fee) / new_qty
                 state["entry_price"] = round(avg_entry, 6)
-                state["total_qty"] = round(new_qty, 3)
+                # state["total_qty"] = round(new_qty, 3)
                 state["status"] = "OPEN"
+                state["order_type"] = "limit"
                 logger.info(
                     f"[WEBSOCKET_HANDLER]: position_event: {position_event} avg_entry: {avg_entry} old_qty: {old_qty}")
                 sl_price = state["stop_loss"]
@@ -175,11 +176,11 @@ async def handle_ws_message(message):
                 avg_entry = state.get("entry_price", 0)
                 tp_acc_zone_id = state.get("tp_acc_zone")
                 trade_action = state.get("trade_action").lower()
-                limit_order_len = state.get("limit_order_len", 0)
+                order_type = state.get("order_type", "market")
                 revised_qty = state.get("revised_qty", 0)
                 acc_qty = new_qty - revised_qty
-                logger.info(f"[POSITION UPDATE]: trade_action: {trade_action} limit_order_length: {limit_order_len}")
-                if trade_action and trade_action == "upgrade" and (limit_order_len == 1 or limit_order_len == 3):
+                logger.info(f"[POSITION UPDATE]: trade_action: {trade_action} limit_order_length: {order_type}")
+                if order_type == "market":
                     for tp_label, order_id in state["tp_orders"].items():
                         step_index = int(tp_label.replace("TP", "")) - 1
                         tp_price = state["tps"][step_index]
@@ -187,7 +188,7 @@ async def handle_ws_message(message):
                         logger.info(
                             f"[TP/SL UPDATED ON QTY INCREASE] {symbol} {direction} Step {step_index} TP: {tp_price}, TPQty: {tp_qty}")
                         await update_tp_quantity(order_id, symbol, tp_qty, tp_price)
-                        state["limit_order_len"] = limit_order_len - 1
+                    state["order_type"] = "limit"
                 else:
                     if not tp_acc_zone_id:
                         logger.info(
@@ -200,45 +201,19 @@ async def handle_ws_message(message):
                         logger.info(
                             f"[TP/SL UPDATE FOR ACC ENTRIES] {symbol} {direction} TP: {avg_entry}, TPQty: {new_qty}")
                         await update_tp_quantity(tp_acc_zone_id, symbol, acc_qty, avg_entry)
+                    limit_order_qty = new_qty - old_qty
+                    state["limit_order_qty"] = limit_order_qty
+
                 sl_order_id = state.get("sl_order_id")
                 sl_price = state["stop_loss"]
                 await update_sl_price(sl_order_id, direction, symbol, sl_price, new_qty)
-                try:
-                    # position_margin = float(pos_event.get("margin"))
-                    # position_leverage = float(pos_event.get("leverage", 20))
-                    # position_fee = float(pos_event.get("fee"))
-                    # avg_entry = ((position_margin * position_leverage) + position_fee) / new_qty
-                    # state["entry_price"] = round(avg_entry, 6)
-                    state["total_qty"] = round(new_qty, 3)
-                    await update_position_state(symbol, direction, position_id, state)
-                except Exception as e:
-                    logger.warning(f"[STATE UPDATE ERROR on qty increase] {e}")
-
+                await update_position_state(symbol, direction, position_id, state)
             if position_event == "CLOSE" and new_qty == 0:
                 state = await get_or_create_symbol_direction_state(symbol, direction, position_id)
                 realized_pnl = float(pos_event.get("realizedPNL"))
                 position_id = pos_event.get("positionId")
                 old_qty = state.get("total_qty", 0)
                 interval = state.get("interval", "5m")
-                try:
-                    is_sl = True if realized_pnl < -0.3 else False
-                    if is_sl:
-                        buffer_key = f"reverse_loss:{symbol}:{direction}:{interval}"
-                        buffer_value = {
-                            "qty": old_qty,
-                            "interval": interval,
-                            "closed_at": datetime.utcnow().isoformat()
-                        }
-                        # interval_minutes = INTERVAL_MINUTES.get(interval, 5)
-                        # buffer_ttl = interval_minutes * 60 + 15
-                        r = get_redis()
-                        await r.set(buffer_key, json.dumps(buffer_value))
-                        logger.info(f"[BUFFERED SL CLOSE] {symbol}-{direction} qty={old_qty} interval={interval}")
-                    else:
-                        r = get_redis()
-                        await r.delete(f"reverse_loss:{symbol}:{direction}:{interval}")
-                except Exception as log_pnl_error:
-                    logger.info(f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}")
                 try:
                     await cancel_all_new_orders(symbol, direction)
                     await update_position_state(symbol, direction, position_id, {
@@ -250,7 +225,6 @@ async def handle_ws_message(message):
                                     ctime, log_date)
                 except Exception as cancel_err:
                     logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
-
         elif topic == "tpsl":
             # This flow handles only take profit event.
             try:
@@ -258,24 +232,47 @@ async def handle_ws_message(message):
                 event = tp_data.get("event")
                 status = tp_data.get("status")
                 tp_qty = tp_data.get("tpQty")
-
+                sl_qty = tp_data.get("slQty")
+                symbol = tp_data.get("symbol")
+                position_id = tp_data.get("positionId")
+                tp_direction = tp_data.get("side", "BUY").upper()
+                position_direction = "SELL" if tp_direction == "BUY" else "BUY"
+                state = await get_or_create_symbol_direction_state(symbol, position_direction, position_id=position_id)
+                interval = state.get("interval","15m")
                 if event != "CLOSE" or status != "FILLED" or tp_qty is None:
                     # logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {tp_data} with status: {status}")
                     return
                 else:
                     logger.info(f"[TP/SL EVENT] Processing event: {tp_data} with status: {status}")
-
-                symbol = tp_data.get("symbol")
-                position_id = tp_data.get("positionId")
-                tp_direction = tp_data.get("side", "BUY").upper()
-                position_direction = "SELL" if tp_direction == "BUY" else "BUY"
-                # logger.info(f"[TPSL EVENT]: {tp_data}")
-
-                state = await get_or_create_symbol_direction_state(symbol, position_direction, position_id=position_id)
                 tp_acc_zone_id = state.get("tp_acc_zone")
                 if tp_acc_zone_id and tp_acc_zone_id == position_id:
-                    logger.info(f"[TP/SL EVENT SKIPPED] Ignored ACC TP Event: {tp_data} with status: {status}")
-                    return
+                    try:
+                        await cancel_all_new_orders(symbol, position_direction)
+                        logger.info(f"[TP ACC EVENT] Canceled limit order: {tp_data} with status: {status}")
+                        return
+                    except Exception as cancel_err:
+                        logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
+                try:
+                    is_sl = True if sl_qty and sl_qty > 0 else False
+                    if is_sl:
+                        buffer_key = f"reverse_loss:{symbol}:{tp_direction}:{interval}"
+                        buffer_value = {
+                            "qty": sl_qty,
+                            "interval": interval,
+                            "closed_at": datetime.utcnow().isoformat()
+                        }
+                        # interval_minutes = INTERVAL_MINUTES.get(interval, 5)
+                        # buffer_ttl = interval_minutes * 60 + 15
+                        r = get_redis()
+                        await r.set(buffer_key, json.dumps(buffer_value))
+                        logger.info(f"[BUFFERED SL CLOSE] {symbol}-{tp_direction} qty={sl_qty} interval={interval}")
+                    else:
+                        r = get_redis()
+                        await r.delete(f"reverse_loss:{symbol}:{tp_direction}:{interval}")
+                except Exception as log_pnl_error:
+                    logger.info(f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}")
+                # logger.info(f"[TPSL EVENT]: {tp_data}")
+
                 tps = state.get("tps", [])
                 step = state.get("step", 0)
                 old_qty = float(state.get("total_qty", 0))
