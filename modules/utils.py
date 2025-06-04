@@ -364,7 +364,7 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
     """
     opposite_direction = "SELL" if new_direction == "BUY" else "BUY"
     existing_state = await get_or_create_symbol_direction_state(symbol, opposite_direction, '', True)
-    same_direction_state = await get_or_create_symbol_direction_state(symbol, opposite_direction, '', False, True)
+    same_direction_state = await get_or_create_symbol_direction_state(symbol, new_direction, '', False, True)
 
     if (existing_state and existing_state.get("status") == "OPEN") or \
             (same_direction_state and same_direction_state.get("status") == "OPEN"):

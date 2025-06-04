@@ -95,6 +95,7 @@ async def webhook_handler(symbol):
                 state["signal_time"] = signal_time
                 state["trade_action"] = trade_action
                 state["revised_qty"] = market_qty_revised
+                state["total_qty"] = market_qty_revised
 
                 zone_start, zone_bottom = parsed["accumulation_zone"]
                 logger.info(f"[ACC ZONES]: {zone_start}: {zone_bottom}")
