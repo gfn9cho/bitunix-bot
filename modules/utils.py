@@ -339,7 +339,7 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
 
 
 async def get_total_buffered_loss(symbol: str, direction: str) -> float:
-    pattern = f"reverse_loss:{symbol}:{direction}:*"
+    pattern = f"reverse_loss:{symbol}:*:*"
     total_qty = 0.0
     # keys_consumed = []
     r = get_redis()
