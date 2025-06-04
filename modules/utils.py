@@ -364,8 +364,10 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
     """
     opposite_direction = "SELL" if new_direction == "BUY" else "BUY"
     existing_state = await get_or_create_symbol_direction_state(symbol, opposite_direction, '', True)
+    same_direction_state = await get_or_create_symbol_direction_state(symbol, opposite_direction, '', False, True)
 
-    if existing_state and existing_state.get("status") == "OPEN":
+    if (existing_state and existing_state.get("status") == "OPEN") or \
+            (same_direction_state and same_direction_state.get("status") == "OPEN"):
         result = evaluate_multi_timeframe_strategy(
             existing_direction=existing_state["direction"],
             existing_interval=existing_state["interval"],
@@ -417,8 +419,8 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
         logger.info(f"[LOW INTERVAL SIGNAL] Opening {new_direction} position on {symbol} at interval {new_interval}")
         return {"action": "open", "reverse_qty": new_qty}
     elif action == "upgrade":
-        logger.info(f"[LOW INTERVAL SIGNAL] Upgrading {new_direction} position on {symbol} at interval {new_interval}")
-        return {"action": "upgrade", "reverse_qty": new_qty}
+        logger.info(f"[LOW OR SAME INTERVAL SIGNAL] Upgrading {new_direction} position on {symbol} at interval {new_interval}")
+        return {"action": "upgrade", "reverse_qty": 2 * new_qty}
     # CASE 3: Reversal NOT allowed — keep OPEN state intact and upgrade with new qty and price
     logger.info(f"[REVERSE CHECK] No reversal permitted for {symbol}. Existing opposite position retained.")
     return {"action": "ignore", "reverse_qty": new_qty}
@@ -447,9 +449,9 @@ def evaluate_multi_timeframe_strategy(
     new_rank = TIMEFRAME_RANK.get(new_interval, 0)
 
     if existing_direction == new_direction:
-        if existing_rank >= new_rank:
+        if existing_rank > new_rank:
             return {"action": "ignore", "reverse_qty": 0}
-        return {"action": "upgrade", "reverse_qty": 0}
+        return {"action": "upgrade", "reverse_qty": existing_qty}
     # Opposite direction: consider reversal only if new is higher ranked
     elif existing_rank <= new_rank:
         return {"action": "reverse", "reverse_qty": existing_qty}
@@ -533,7 +535,7 @@ async def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20,
         "nonce": nonce
     }
 
-    logger.info(f"[ORDER DATA] {order_data}")
+    # logger.info(f"[ORDER DATA] {order_data}")
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:

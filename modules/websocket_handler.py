@@ -178,6 +178,7 @@ async def handle_ws_message(message):
                 limit_order_len = state.get("limit_order_len", 0)
                 revised_qty = state.get("revised_qty", 0)
                 acc_qty = new_qty - revised_qty
+                logger.info(f"[POSITION UPDATE]: trade_action: {trade_action} limit_order_length: {limit_order_len}")
                 if trade_action and trade_action == "upgrade" and (limit_order_len == 1 or limit_order_len == 3):
                     for tp_label, order_id in state["tp_orders"].items():
                         step_index = int(tp_label.replace("TP", "")) - 1
@@ -271,6 +272,10 @@ async def handle_ws_message(message):
                 # logger.info(f"[TPSL EVENT]: {tp_data}")
 
                 state = await get_or_create_symbol_direction_state(symbol, position_direction, position_id=position_id)
+                tp_acc_zone_id = state.get("tp_acc_zone")
+                if tp_acc_zone_id and tp_acc_zone_id == position_id:
+                    logger.info(f"[TP/SL EVENT SKIPPED] Ignored ACC TP Event: {tp_data} with status: {status}")
+                    return
                 tps = state.get("tps", [])
                 step = state.get("step", 0)
                 old_qty = float(state.get("total_qty", 0))

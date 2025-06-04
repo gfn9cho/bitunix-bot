@@ -17,12 +17,12 @@ def _redis_key(symbol: str, direction: str, position_id: str = "") -> str:
 
 
 async def get_or_create_symbol_direction_state(symbol: str, direction: str, position_id: str = "",
-                                               reversal_check: bool = False) -> dict:
+                                               reversal_check: bool = False, upgrade_check: bool = False) -> dict:
     key = _redis_key(symbol, direction)
     state_json = await r.get(key)
     if state_json:
         return json.loads(state_json)
-    if reversal_check:
+    if reversal_check or upgrade_check:
         return None
 
     # Fallback to Postgres
