@@ -136,15 +136,12 @@ async def handle_ws_message(message):
             log_date = ctime.strftime("%Y-%m-%d")
             if position_event == "OPEN":
                 position_id = pos_event.get("positionId")
-                position_margin = float(pos_event.get("margin"))
-                position_leverage = float(pos_event.get("leverage", 20))
+                # position_margin = float(pos_event.get("margin"))
+                # position_leverage = float(pos_event.get("leverage", 20))
                 # position_rpnl = float(pos_event.get("realizedPNL"))
-                position_fee = float(pos_event.get("fee"))
+                # position_fee = float(pos_event.get("fee"))
                 state["position_id"] = position_id
-                # Have to adjust and get it from order position or make a call to order.
-                avg_entry = ((position_margin * position_leverage) + position_fee) / new_qty
-                state["entry_price"] = round(avg_entry, 6)
-                # state["total_qty"] = round(new_qty, 3)
+                avg_entry = state.get("entry_price", 0)
                 state["status"] = "OPEN"
                 state["order_type"] = "limit"
                 logger.info(
@@ -173,7 +170,6 @@ async def handle_ws_message(message):
 
             # New logic: if position qty increases after step > 0, update TP/SL
             if position_event == "UPDATE" and new_qty > old_qty > 0:
-                avg_entry = state.get("entry_price", 0)
                 tp_acc_zone_id = state.get("tp_acc_zone_id")
                 trade_action = state.get("trade_action").lower()
                 order_type = state.get("order_type", "market")
