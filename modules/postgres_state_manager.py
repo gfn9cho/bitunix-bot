@@ -104,8 +104,9 @@ def update_position_state(symbol, direction, position_id, updated_fields: dict):
     # Allow position_id to be updated only if it's provided in the updated_fields explicitly
     include_position_id = "position_id" in updated_fields and updated_fields["position_id"]
     columns = [col for col in updated_fields.keys() if col not in ("symbol", "direction", "sl_order_id", "tp_orders",
-                                                                   "interval", "created_at", "order_type", "limit_order_qty",
-                                                                   "trade_action", "revised_qty", "tp_acc_zone")]
+                                                                   "interval", "created_at", "order_type",
+                                                                   "limit_order_qty",
+                                                                   "trade_action", "revised_qty", "tp_acc_zone_id")]
     values = [updated_fields[col] for col in columns]
 
     if not columns:
