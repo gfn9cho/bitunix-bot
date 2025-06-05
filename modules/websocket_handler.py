@@ -237,8 +237,12 @@ async def handle_ws_message(message):
                 position_id = tp_data.get("positionId")
                 tp_direction = tp_data.get("side", "BUY").upper()
                 position_direction = "SELL" if tp_direction == "BUY" else "BUY"
-                state = await get_or_create_symbol_direction_state(symbol, position_direction, position_id=position_id)
-                interval = state.get("interval","15m")
+                try:
+                    state = await get_or_create_symbol_direction_state(symbol, position_direction, position_id=position_id)
+                    interval = state.get("interval","15m")
+                except Exception as e:
+                    logger.info(f"[TP SL EVENT]: Position might closed for {symbol} {position_direction}")
+                    return
                 if event != "CLOSE" or status != "FILLED" or tp_qty is None:
                     # logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {tp_data} with status: {status}")
                     return
