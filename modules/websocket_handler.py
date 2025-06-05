@@ -125,7 +125,7 @@ async def handle_ws_message(message):
             old_qty = state.get("total_qty", 0)
             if new_qty != old_qty:
                 logger.info(
-                    f"[WEBSOCKET_HANDLER]: position_event: {position_event} new_qty: {new_qty} old_qty: {old_qty}")
+                    f"[WEBSOCKET_HANDLER]: position_event: {pos_event} new_qty: {new_qty} old_qty: {old_qty}")
             # Extract and normalize time info
             ctime_str = pos_event.get("ctime")
             tps = state.get("tps", [])
@@ -245,10 +245,12 @@ async def handle_ws_message(message):
                 else:
                     logger.info(f"[TP/SL EVENT] Processing event: {tp_data} with status: {status}")
                 tp_acc_zone_id = state.get("tp_acc_zone")
-                if tp_acc_zone_id and tp_acc_zone_id == position_id:
+                if tp_acc_zone_id and tp_acc_zone_id != "":
                     try:
                         await cancel_all_new_orders(symbol, position_direction)
                         logger.info(f"[TP ACC EVENT] Canceled limit order: {tp_data} with status: {status}")
+                        state["tp_acc_zone_id"] = ""
+                        await update_position_state(symbol, position_direction, position_id, state)
                         return
                     except Exception as cancel_err:
                         logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
