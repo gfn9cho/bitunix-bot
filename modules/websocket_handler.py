@@ -174,7 +174,7 @@ async def handle_ws_message(message):
             # New logic: if position qty increases after step > 0, update TP/SL
             if position_event == "UPDATE" and new_qty > old_qty > 0:
                 avg_entry = state.get("entry_price", 0)
-                tp_acc_zone_id = state.get("tp_acc_zone")
+                tp_acc_zone_id = state.get("tp_acc_zone_id")
                 trade_action = state.get("trade_action").lower()
                 order_type = state.get("order_type", "market")
                 revised_qty = state.get("revised_qty", 0)
@@ -196,7 +196,7 @@ async def handle_ws_message(message):
                         order_id = await place_tp_sl_order_async(symbol, tp_price=avg_entry, sl_price=None,
                                                       position_id=position_id, tp_qty=acc_qty, qty=new_qty)
                         if order_id:
-                            state.setdefault("tp_acc_zone", order_id)
+                            state.setdefault("tp_acc_zone_id", order_id)
                     else:
                         logger.info(
                             f"[TP/SL UPDATE FOR ACC ENTRIES] {symbol} {direction} TP: {avg_entry}, TPQty: {new_qty}")
@@ -248,7 +248,7 @@ async def handle_ws_message(message):
                     return
                 else:
                     logger.info(f"[TP/SL EVENT] Processing event: {tp_data} with status: {status}")
-                tp_acc_zone_id = state.get("tp_acc_zone")
+                tp_acc_zone_id = state.get("tp_acc_zone_id")
                 if tp_acc_zone_id and tp_acc_zone_id != "":
                     try:
                         await cancel_all_new_orders(symbol, position_direction)
