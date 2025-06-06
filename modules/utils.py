@@ -13,6 +13,7 @@ from modules.logger_config import logger
 # from modules.postgres_state_manager import update_position_state, get_or_create_symbol_direction_state
 from modules.redis_state_manager import get_or_create_symbol_direction_state, update_position_state, delete_position_state
 from modules.redis_client import get_redis
+from typing import Optional
 
 
 def get_today():
@@ -339,9 +340,9 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
 
 
 async def get_total_buffered_loss(symbol: str, direction: str) -> float:
-    pattern = f"reverse_loss:{symbol}:*:*"
+    """Return the total remaining quantity buffered for reversal."""
+    pattern = f"reverse_loss:{symbol}:{direction}:*"
     total_qty = 0.0
-    # keys_consumed = []
     r = get_redis()
     async for key in r.scan_iter(match=pattern):
         value = await r.get(key)
@@ -350,10 +351,53 @@ async def get_total_buffered_loss(symbol: str, direction: str) -> float:
                 data = json.loads(value)
                 qty = float(data.get("qty", 0))
                 total_qty += qty
-                # keys_consumed.append(key)
             except Exception as e:
                 print(f"[REDIS ERROR] Failed to parse buffer for {key}: {e}")
     return total_qty
+
+
+async def reduce_buffered_loss(symbol: str, direction: str, profit: float, interval: Optional[str] = None) -> None:
+    """Reduce stored loss across all intervals when profit is realized."""
+    if profit <= 0:
+        return
+    r = get_redis()
+    keys = []
+    async for key in r.scan_iter(match=f"reverse_loss:{symbol}:{direction}:*"):
+        if isinstance(key, bytes):
+            key = key.decode()
+        keys.append(key)
+    target_key = f"reverse_loss:{symbol}:{direction}:{interval}" if interval else None
+    if target_key and target_key in keys:
+        keys.remove(target_key)
+        keys.insert(0, target_key)
+
+    for key in keys:
+        if profit <= 0:
+            break
+        raw = await r.get(key)
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+            loss = float(data.get("loss", 0))
+            qty = float(data.get("qty", 0))
+        except Exception as e:
+            print(f"[REDIS ERROR] Failed to parse buffer for {key}: {e}")
+            continue
+
+        if profit >= loss:
+            profit -= loss
+            await r.delete(key)
+        else:
+            remaining_loss = loss - profit
+            new_qty = qty * remaining_loss / loss if loss else qty
+            data.update({"loss": remaining_loss, "qty": new_qty})
+            await r.set(key, json.dumps(data))
+            profit = 0
+
+    if profit > 0:
+        async for k in r.scan_iter(match=f"reverse_loss:{symbol}:{direction}:*"):
+            await r.delete(k)
 
 
 
