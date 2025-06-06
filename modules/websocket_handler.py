@@ -17,7 +17,8 @@ from modules.redis_state_manager import get_or_create_symbol_direction_state, \
 from modules.redis_client import get_redis
 # from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.utils import place_tp_sl_order_async, cancel_all_new_orders, \
-    modify_tp_sl_order_async, update_tp_quantity, update_sl_price
+    modify_tp_sl_order_async, update_tp_quantity, update_sl_price, \
+    reduce_buffered_loss
 
 # TP distribution: 70% for TP1, 10% each for TP2–TP4
 TP_DISTRIBUTION = [0.7, 0.1, 0.1, 0.1]
@@ -255,23 +256,35 @@ async def handle_ws_message(message):
                         return
                     except Exception as cancel_err:
                         logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
+                tps = state.get("tps", [])
+                step = state.get("step", 0)
                 try:
                     is_sl = True if sl_qty and sl_qty > 0 else False
+                    r = get_redis()
+                    buffer_key = f"reverse_loss:{symbol}:{tp_direction}:{interval}"
+                    entry_price = float(state.get("entry_price", 0))
                     if is_sl:
-                        buffer_key = f"reverse_loss:{symbol}:{tp_direction}:{interval}"
+                        sl_price = float(state.get("stop_loss", tp_data.get("slPrice", 0)))
+                        loss_value = abs(entry_price - sl_price) * float(sl_qty)
+                        buffer_raw = await r.get(buffer_key)
+                        if buffer_raw:
+                            buffer = json.loads(buffer_raw)
+                            loss_value += float(buffer.get("loss", 0))
+                            sl_qty += float(buffer.get("qty", 0))
                         buffer_value = {
                             "qty": sl_qty,
+                            "loss": loss_value,
                             "interval": interval,
                             "closed_at": datetime.utcnow().isoformat()
                         }
-                        # interval_minutes = INTERVAL_MINUTES.get(interval, 5)
-                        # buffer_ttl = interval_minutes * 60 + 15
-                        r = get_redis()
                         await r.set(buffer_key, json.dumps(buffer_value))
-                        logger.info(f"[BUFFERED SL CLOSE] {symbol}-{tp_direction} qty={sl_qty} interval={interval}")
+                        logger.info(
+                            f"[BUFFERED SL CLOSE] {symbol}-{tp_direction} qty={sl_qty} interval={interval} loss={loss_value}"
+                        )
                     else:
-                        r = get_redis()
-                        await r.delete(f"reverse_loss:{symbol}:{tp_direction}:{interval}")
+                        tp_price = float(tps[step]) if step < len(tps) else entry_price
+                        profit_value = abs(entry_price - tp_price) * float(tp_qty or 0)
+                        await reduce_buffered_loss(symbol, tp_direction, profit_value, interval)
                 except Exception as log_pnl_error:
                     logger.info(f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}")
                 # logger.info(f"[TPSL EVENT]: {tp_data}")
