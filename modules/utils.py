@@ -366,12 +366,17 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
     existing_state = await get_or_create_symbol_direction_state(symbol, opposite_direction, '', True)
     same_direction_state = await get_or_create_symbol_direction_state(symbol, new_direction, '', False, True)
 
-    if (existing_state and existing_state.get("status") == "OPEN") or \
-            (same_direction_state and same_direction_state.get("status") == "OPEN"):
+    active_state = None
+    if existing_state and existing_state.get("status") == "OPEN":
+        active_state = existing_state
+    elif same_direction_state and same_direction_state.get("status") == "OPEN":
+        active_state = same_direction_state
+
+    if active_state:
         result = evaluate_multi_timeframe_strategy(
-            existing_direction=existing_state["direction"],
-            existing_interval=existing_state["interval"],
-            existing_qty=existing_state["total_qty"],
+            existing_direction=active_state["direction"],
+            existing_interval=active_state["interval"],
+            existing_qty=active_state["total_qty"],
             new_direction=new_direction,
             new_interval=new_interval
         )
@@ -399,7 +404,7 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
         return {"action": "open", "reverse_qty": new_qty}
 
     action = result["action"]
-    position_id = existing_state.get("position_id") if existing_state else ""
+    position_id = active_state.get("position_id") if active_state else ""
 
     # CASE 2: Reversal authorized
     if action == "reverse":
@@ -409,11 +414,11 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
                 await flash_close_positions(symbol, position_id)
             # await update_position_state(symbol, opposite_direction, position_id, {"status": "CLOSED"})
             # await delete_position_state(symbol, opposite_direction, position_id)
-            total_qty = existing_state["total_qty"] + new_qty
+            total_qty = active_state["total_qty"] + new_qty
             return {"action": "reverse", "reverse_qty": round(total_qty, 3)}
         except Exception as e:
             logger.error(f"[REVERSAL ERROR] Failed to close and flip position for {symbol}: {e}")
-            total_qty = existing_state["total_qty"] + new_qty
+            total_qty = active_state["total_qty"] + new_qty
             return {"action": "reverse", "reverse_qty": round(total_qty, 3)}
     elif action == "open":
         logger.info(f"[LOW INTERVAL SIGNAL] Opening {new_direction} position on {symbol} at interval {new_interval}")
