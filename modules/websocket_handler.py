@@ -123,6 +123,7 @@ async def handle_ws_message(message):
             # logger.info(f"State inside position: {state}")
             # Weighted average entry price update
             old_qty = state.get("total_qty", 0)
+            avg_entry = state.get("entry_price", 0)
             if new_qty != old_qty:
                 logger.info(
                     f"[WEBSOCKET_HANDLER]: position_event: {pos_event} new_qty: {new_qty} old_qty: {old_qty}")
@@ -141,7 +142,6 @@ async def handle_ws_message(message):
                 # position_rpnl = float(pos_event.get("realizedPNL"))
                 # position_fee = float(pos_event.get("fee"))
                 state["position_id"] = position_id
-                avg_entry = state.get("entry_price", 0)
                 state["status"] = "OPEN"
                 state["order_type"] = "limit"
                 logger.info(
