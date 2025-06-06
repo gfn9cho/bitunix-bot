@@ -137,6 +137,7 @@ async def handle_ws_message(message):
             log_date = ctime.strftime("%Y-%m-%d")
             if position_event == "OPEN":
                 position_id = pos_event.get("positionId")
+                avg_entry = state.get("entry_price", 0)
                 # position_margin = float(pos_event.get("margin"))
                 # position_leverage = float(pos_event.get("leverage", 20))
                 # position_rpnl = float(pos_event.get("realizedPNL"))
