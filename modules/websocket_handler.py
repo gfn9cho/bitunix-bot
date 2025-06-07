@@ -9,7 +9,7 @@ from datetime import datetime
 import websockets
 
 from modules.config import API_KEY, API_SECRET
-from modules.logger_config import logger
+from modules.logger_config import logger, setup_asset_logging
 from modules.loss_tracking import log_profit_loss
 # from modules.state import position_state, save_position_state, get_or_create_symbol_direction_state
 from modules.redis_state_manager import get_or_create_symbol_direction_state, \
@@ -113,6 +113,7 @@ async def handle_ws_message(message):
         if topic == "position":
             pos_event = data.get("data", {})
             symbol = pos_event.get("symbol", "BTCUSDT")
+            setup_asset_logging(symbol)
             side = pos_event.get("side", "LONG").upper()
             direction = "BUY" if side == "LONG" else "SELL"
             position_event = pos_event.get("event")
@@ -212,14 +213,39 @@ async def handle_ws_message(message):
                 old_qty = state.get("total_qty", 0)
                 interval = state.get("interval", "5m")
                 try:
+                    if realized_pnl < 0:
+                        buffer_key = f"reverse_loss:{symbol}:{direction}:{interval}"
+                        buffer_value = {
+                            "qty": old_qty,
+                            "interval": interval,
+                            "closed_at": datetime.utcnow().isoformat()
+                        }
+                        r = get_redis()
+                        await r.set(buffer_key, json.dumps(buffer_value))
+                        logger.info(
+                            f"[BUFFERED REVERSAL LOSS] {symbol}-{direction} qty={old_qty} interval={interval}"
+                        )
+                    else:
+                        r = get_redis()
+                        await r.delete(f"reverse_loss:{symbol}:{direction}:{interval}")
+                except Exception as log_pnl_error:
+                    logger.info(f"[REVERSAL LOSS BUFFER ERROR]: {log_pnl_error}")
+
+                try:
                     await cancel_all_new_orders(symbol, direction)
                     await update_position_state(symbol, direction, position_id, {
                         "status": "CLOSED"
                     })
                     await delete_position_state(symbol, direction, position_id)
-                    log_profit_loss(symbol, direction, str(position_id), round(realized_pnl, 4),
-                                    "PROFIT" if realized_pnl > 0 else "LOSS",
-                                    ctime, log_date)
+                    log_profit_loss(
+                        symbol,
+                        direction,
+                        str(position_id),
+                        round(realized_pnl, 4),
+                        "PROFIT" if realized_pnl > 0 else "LOSS",
+                        ctime,
+                        log_date,
+                    )
                 except Exception as cancel_err:
                     logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
         elif topic == "tpsl":
@@ -231,6 +257,7 @@ async def handle_ws_message(message):
                 tp_qty = tp_data.get("tpQty")
                 sl_qty = tp_data.get("slQty")
                 symbol = tp_data.get("symbol")
+                setup_asset_logging(symbol)
                 position_id = tp_data.get("positionId")
                 tp_direction = tp_data.get("side", "BUY").upper()
                 position_direction = "SELL" if tp_direction == "BUY" else "BUY"
