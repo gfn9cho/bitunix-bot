@@ -9,7 +9,7 @@ from datetime import datetime
 import websockets
 
 from modules.config import API_KEY, API_SECRET
-from modules.logger_config import logger
+from modules.logger_config import logger, setup_asset_logging
 from modules.loss_tracking import log_profit_loss
 # from modules.state import position_state, save_position_state, get_or_create_symbol_direction_state
 from modules.redis_state_manager import get_or_create_symbol_direction_state, \
@@ -113,6 +113,7 @@ async def handle_ws_message(message):
         if topic == "position":
             pos_event = data.get("data", {})
             symbol = pos_event.get("symbol", "BTCUSDT")
+            setup_asset_logging(symbol)
             side = pos_event.get("side", "LONG").upper()
             direction = "BUY" if side == "LONG" else "SELL"
             position_event = pos_event.get("event")
@@ -231,6 +232,7 @@ async def handle_ws_message(message):
                 tp_qty = tp_data.get("tpQty")
                 sl_qty = tp_data.get("slQty")
                 symbol = tp_data.get("symbol")
+                setup_asset_logging(symbol)
                 position_id = tp_data.get("positionId")
                 tp_direction = tp_data.get("side", "BUY").upper()
                 position_direction = "SELL" if tp_direction == "BUY" else "BUY"
