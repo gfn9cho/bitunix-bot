@@ -51,6 +51,17 @@ reversal_logger.addHandler(reversal_handler)
 _configured_assets = set()
 
 
+class SymbolFilter(logging.Filter):
+    """Filter log records to only include those matching the handler's symbol."""
+
+    def __init__(self, symbol: str):
+        super().__init__()
+        self.symbol = symbol
+
+    def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+        return getattr(record, "symbol", None) == self.symbol
+
+
 def setup_asset_logging(symbol: str) -> None:
     """Add a file handler for the given trading symbol if not already present."""
     if not symbol:
@@ -62,5 +73,6 @@ def setup_asset_logging(symbol: str) -> None:
     file_path = os.path.join(DEFAULT_LOG_DIR, f"{symbol}_{date_str}.log")
     handler = logging.FileHandler(file_path)
     handler.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(message)s'))
+    handler.addFilter(SymbolFilter(symbol))
     logger.addHandler(handler)
     _configured_assets.add(symbol)

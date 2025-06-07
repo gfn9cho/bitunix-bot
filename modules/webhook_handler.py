@@ -33,7 +33,10 @@ async def webhook_handler(symbol):
 
     try:
         if is_daily_loss_limit_exceeded():
-            logger.warning("Max daily loss reached. Blocking trades.")
+            logger.warning(
+                f"[MAX DAILY LOSS] {symbol.upper()} Blocking trades.",
+                extra={"symbol": symbol.upper()}
+            )
             return jsonify({"status": "blocked", "message": "Max daily loss reached"}), 403
 
         try:
@@ -58,9 +61,17 @@ async def webhook_handler(symbol):
             override_qty = None
             interval = "1m"
 
-        logger.info(f"Parsed data: {data}")
-        logger.info(f"Received alert '{alert_name}' for {symbol}: {message}")
-        logger.info(f"[SYMBOL_QTY] Using override_qty={override_qty} for all order placements")
+        log_extra_base = {"symbol": symbol, "interval": interval}
+
+        logger.info(f"Parsed data: {data}", extra=log_extra_base)
+        logger.info(
+            f"Received alert '{alert_name}' for {symbol}: {message}",
+            extra=log_extra_base,
+        )
+        logger.info(
+            f"[SYMBOL_QTY] Using override_qty={override_qty} for all order placements",
+            extra=log_extra_base,
+        )
 
         parsed = parse_signal(message)
         direction = parsed["direction"].upper()
@@ -70,13 +81,20 @@ async def webhook_handler(symbol):
         async def process_trade(market_qty_revised, trade_action):
             # Create a new pending position or get a open position if exists.
             if await is_duplicate_signal(symbol, direction):
-                logger.warning(f"[DUPLICATE] Signal skipped for {symbol}-{direction}")
+                logger.warning(
+                    f"[DUPLICATE] Signal skipped for {symbol}-{direction}",
+                    extra={**log_extra_base, "direction": direction},
+                )
                 return
 
             if not await should_accept_signal(symbol, direction, interval):
                 return jsonify({"error": "Signal rate limit exceeded"})
 
-            logger.info(f"[PROCESS TRADE]: CREATE STATE - {symbol} {direction} {entry}")
+            trade_extra = {**log_extra_base, "direction": direction}
+            logger.info(
+                f"[PROCESS TRADE]: CREATE STATE - {symbol} {direction} {entry}",
+                extra=trade_extra,
+            )
             state = await get_or_create_symbol_direction_state(symbol, direction)
             position_status = state.get("status")
             position_step = state.get("step")
@@ -101,19 +119,27 @@ async def webhook_handler(symbol):
                 state["pending_qty"] = market_qty_revised
 
                 zone_start, zone_bottom = parsed["accumulation_zone"]
-                logger.info(f"[ACC ZONES]: {zone_start}: {zone_bottom}")
+                logger.info(
+                    f"[ACC ZONES]: {zone_start}: {zone_bottom}",
+                    extra=trade_extra,
+                )
                 zone_middle = (zone_start + zone_bottom) / 2
                 # tp1 = parsed["take_profits"][0]
                 # sl = parsed["stop_loss"]
 
                 # market_qty = override_qty if override_qty else 10
                 logger.info(
-                    f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, \
-                        price={entry}, qty_revised={market_qty_revised} base_qty={override_qty}")
+                    f"[ORDER SUBMIT] Market order: symbol={symbol}, direction={direction}, "
+                    f"price={entry}, qty_revised={market_qty_revised} base_qty={override_qty}",
+                    extra=trade_extra,
+                )
                 retries = 3
 
                 for attempt in range(retries):
-                    logger.info(f"[TEST TRACE] Reverse? {state}, Revised Qty: {market_qty_revised}")
+                    logger.info(
+                        f"[TEST TRACE] Reverse? {state}, Revised Qty: {market_qty_revised}",
+                        extra=trade_extra,
+                    )
                     state["order_type"] = "market"
                     position_id = state.get("position_id", "")
                     await update_position_state(symbol, direction, position_id, state)
@@ -131,7 +157,7 @@ async def webhook_handler(symbol):
                             state["entry_price"] = await get_order_detail(order_id)
                         await update_position_state(symbol, direction, position_id, state)
                         # logger.info(f"[LOSS TRACKING] Awaiting TP or SL to update net P&L for {symbol}")
-                        logger.info(f"[TEST TRACE] ORDER RESPONSE: {response}")
+                        logger.info(f"[TEST TRACE] ORDER RESPONSE: {response}", extra=trade_extra)
                         break
                     error_logger.error(
                         f"[ORDER FAILURE] Attempt {attempt + 1}/{retries} - symbol={symbol}, \
@@ -139,21 +165,27 @@ async def webhook_handler(symbol):
                     time.sleep(1)
                 if market_qty_revised <= override_qty:
                     logger.info(
-                        f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, \
-                            price={zone_start}, qty={market_qty_revised or 10}")
+                        f"[ORDER SUBMIT] Limit order 1: symbol={symbol}, direction={direction}, "
+                        f"price={zone_start}, qty={market_qty_revised or 10}",
+                        extra=trade_extra,
+                    )
                     await place_order(symbol=symbol, side=direction, price=zone_start, qty=market_qty_revised or 10,
                                       order_type="LIMIT")
 
                     logger.info(
-                        f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, \
-                            price={zone_middle}, qty={market_qty_revised or 10}")
+                        f"[ORDER SUBMIT] Limit order 2: symbol={symbol}, direction={direction}, "
+                        f"price={zone_middle}, qty={market_qty_revised or 10}",
+                        extra=trade_extra,
+                    )
                     await place_order(symbol=symbol, side=direction, price=zone_middle, qty=market_qty_revised or 10,
                                       order_type="LIMIT")
 
                     bottom_qty = (market_qty_revised * 2 if market_qty_revised else 20)
                     logger.info(
-                        f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, \
-                            price={zone_bottom}, qty={bottom_qty}")
+                        f"[ORDER SUBMIT] Limit order 3: symbol={symbol}, direction={direction}, "
+                        f"price={zone_bottom}, qty={bottom_qty}",
+                        extra=trade_extra,
+                    )
                     await place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
                 else:
                     # Clear buffer keys used for reversal or uprade
@@ -161,12 +193,17 @@ async def webhook_handler(symbol):
                     # Submit only one limit order for reversal
                     bottom_qty = (market_qty_revised * 2 if market_qty_revised else 20)
                     logger.info(
-                        f"[ORDER SUBMIT FOR REVERSAL] Limit order 3: symbol={symbol}, direction={direction}, \
-                                                price={zone_bottom}, qty={bottom_qty}")
+                        f"[ORDER SUBMIT FOR REVERSAL] Limit order 3: symbol={symbol}, direction={direction}, "
+                        f"price={zone_bottom}, qty={bottom_qty}",
+                        extra=trade_extra,
+                    )
                     await place_order(symbol=symbol, side=direction, price=zone_bottom, qty=bottom_qty, order_type="LIMIT")
             else:
                 # await delete_position_state(symbol, direction)
-                logger.info(f"[TRADE SKIP]: As the existing position is open and in TP stage")
+                logger.info(
+                    f"[TRADE SKIP] {symbol} {direction} {interval}: existing position in TP stage",
+                    extra=trade_extra,
+                )
 
         async def wrapped_process():
             await validate_and_process_signal(
@@ -183,5 +220,8 @@ async def webhook_handler(symbol):
         })
 
     except Exception as e:
-        logger.exception("Error in webhook handler")
+        logger.exception(
+            "Error in webhook handler",
+            extra=log_extra_base if 'log_extra_base' in locals() else None,
+        )
         return jsonify({"status": "error", "message": str(e)}), 500
