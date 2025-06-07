@@ -17,7 +17,7 @@ from modules.redis_state_manager import get_or_create_symbol_direction_state, \
 from modules.redis_client import get_redis
 # from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
 from modules.utils import place_tp_sl_order_async, cancel_all_new_orders, \
-    modify_tp_sl_order_async, update_tp_quantity, update_sl_price
+    modify_tp_sl_order_async, update_tp_quantity, update_sl_price, reduce_buffer_loss
 
 # TP distribution: 70% for TP1, 10% each for TP2–TP4
 TP_DISTRIBUTION = [0.7, 0.1, 0.1, 0.1]
@@ -213,21 +213,22 @@ async def handle_ws_message(message):
                 old_qty = state.get("total_qty", 0)
                 interval = state.get("interval", "5m")
                 try:
-                    if realized_pnl < 0:
-                        buffer_key = f"reverse_loss:{symbol}:{direction}:{interval}"
-                        buffer_value = {
-                            "qty": old_qty,
-                            "interval": interval,
-                            "closed_at": datetime.utcnow().isoformat()
-                        }
-                        r = get_redis()
-                        await r.set(buffer_key, json.dumps(buffer_value))
-                        logger.info(
-                            f"[BUFFERED REVERSAL LOSS] {symbol}-{direction} qty={old_qty} interval={interval}"
-                        )
+                    buffer_key = f"reverse_loss:{symbol}:{direction}:{interval}"
+                    r = get_redis()
+                    existing_raw = await r.get(buffer_key)
+                    if existing_raw:
+                        buffer_value = json.loads(existing_raw)
                     else:
-                        r = get_redis()
-                        await r.delete(f"reverse_loss:{symbol}:{direction}:{interval}")
+                        buffer_value = {"qty": 0, "pnl": 0, "interval": interval}
+
+                    buffer_value["qty"] += old_qty
+                    buffer_value["pnl"] += realized_pnl
+                    buffer_value["closed_at"] = datetime.utcnow().isoformat()
+
+                    await r.set(buffer_key, json.dumps(buffer_value))
+                    logger.info(
+                        f"[BUFFERED POSITION CLOSE] {symbol}-{direction} qty={buffer_value['qty']} pnl={buffer_value['pnl']} interval={interval}"
+                    )
                 except Exception as log_pnl_error:
                     logger.info(f"[REVERSAL LOSS BUFFER ERROR]: {log_pnl_error}")
 
@@ -284,21 +285,26 @@ async def handle_ws_message(message):
                         logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
                 try:
                     is_sl = True if sl_qty and sl_qty > 0 else False
+                    entry_price = float(state.get("entry_price", 0))
+                    r = get_redis()
                     if is_sl:
+                        sl_price = float(state.get("stop_loss", entry_price))
+                        loss_value = -abs(entry_price - sl_price) * float(sl_qty)
                         buffer_key = f"reverse_loss:{symbol}:{tp_direction}:{interval}"
-                        buffer_value = {
-                            "qty": sl_qty,
-                            "interval": interval,
-                            "closed_at": datetime.utcnow().isoformat()
-                        }
-                        # interval_minutes = INTERVAL_MINUTES.get(interval, 5)
-                        # buffer_ttl = interval_minutes * 60 + 15
-                        r = get_redis()
+                        existing_raw = await r.get(buffer_key)
+                        if existing_raw:
+                            buffer_value = json.loads(existing_raw)
+                        else:
+                            buffer_value = {"qty": 0, "pnl": 0, "interval": interval}
+                        buffer_value["qty"] += float(sl_qty)
+                        buffer_value["pnl"] += loss_value
+                        buffer_value["closed_at"] = datetime.utcnow().isoformat()
                         await r.set(buffer_key, json.dumps(buffer_value))
-                        logger.info(f"[BUFFERED SL CLOSE] {symbol}-{tp_direction} qty={sl_qty} interval={interval}")
+                        logger.info(f"[BUFFERED SL CLOSE] {symbol}-{tp_direction} qty={buffer_value['qty']} pnl={buffer_value['pnl']} interval={interval}")
                     else:
-                        r = get_redis()
-                        await r.delete(f"reverse_loss:{symbol}:{tp_direction}:{interval}")
+                        tp_price = float(tps[step]) if step < len(tps) else entry_price
+                        profit_value = abs(tp_price - entry_price) * float(tp_qty)
+                        await reduce_buffer_loss(symbol, tp_direction, profit_value)
                 except Exception as log_pnl_error:
                     logger.info(f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}")
                 # logger.info(f"[TPSL EVENT]: {tp_data}")
