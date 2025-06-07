@@ -283,6 +283,8 @@ async def handle_ws_message(message):
                         return
                     except Exception as cancel_err:
                         logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
+                tps = state.get("tps", [])
+                step = state.get("step", 0)
                 try:
                     is_sl = True if sl_qty and sl_qty > 0 else False
                     entry_price = float(state.get("entry_price", 0))
