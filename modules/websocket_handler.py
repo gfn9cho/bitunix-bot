@@ -214,14 +214,39 @@ async def handle_ws_message(message):
                 old_qty = state.get("total_qty", 0)
                 interval = state.get("interval", "5m")
                 try:
+                    if realized_pnl < 0:
+                        buffer_key = f"reverse_loss:{symbol}:{direction}:{interval}"
+                        buffer_value = {
+                            "qty": old_qty,
+                            "interval": interval,
+                            "closed_at": datetime.utcnow().isoformat()
+                        }
+                        r = get_redis()
+                        await r.set(buffer_key, json.dumps(buffer_value))
+                        logger.info(
+                            f"[BUFFERED REVERSAL LOSS] {symbol}-{direction} qty={old_qty} interval={interval}"
+                        )
+                    else:
+                        r = get_redis()
+                        await r.delete(f"reverse_loss:{symbol}:{direction}:{interval}")
+                except Exception as log_pnl_error:
+                    logger.info(f"[REVERSAL LOSS BUFFER ERROR]: {log_pnl_error}")
+
+                try:
                     await cancel_all_new_orders(symbol, direction)
                     await update_position_state(symbol, direction, position_id, {
                         "status": "CLOSED"
                     })
                     await delete_position_state(symbol, direction, position_id)
-                    log_profit_loss(symbol, direction, str(position_id), round(realized_pnl, 4),
-                                    "PROFIT" if realized_pnl > 0 else "LOSS",
-                                    ctime, log_date)
+                    log_profit_loss(
+                        symbol,
+                        direction,
+                        str(position_id),
+                        round(realized_pnl, 4),
+                        "PROFIT" if realized_pnl > 0 else "LOSS",
+                        ctime,
+                        log_date,
+                    )
                 except Exception as cancel_err:
                     logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
         elif topic == "tpsl":
