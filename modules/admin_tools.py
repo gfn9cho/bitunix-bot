@@ -18,12 +18,22 @@ async def list_redis_keys():
 
 @admin_tools.route("/debug/redis-reversal-keys", methods=["GET"])
 async def list_redis_reversal_keys():
+    """Return reversal-loss keys and optionally their stored state."""
     r = get_redis()
     keys = await r.keys("reverse_loss:*")
-    return jsonify({
-        "total_keys": len(keys),
-        "keys": keys
-    }), 200
+
+    include_state = request.args.get("state") == "1"
+    if include_state:
+        states = {}
+        for key in keys:
+            try:
+                value = await r.get(key)
+                states[key] = json.loads(value) if value else None
+            except Exception:
+                states[key] = None
+        return jsonify({"total_keys": len(keys), "states": states}), 200
+
+    return jsonify({"total_keys": len(keys), "keys": keys}), 200
 
 
 @admin_tools.route("/debug/cleanup-position-true", methods=["POST"])
@@ -69,13 +79,12 @@ async def get_key_state(key):
 async def get_all_key_state(pattern):
     try:
         r = get_redis()
-        all_keys = []
-        for key in r.scan_iter(pattern):
+        results = []
+        async for key in r.scan_iter(match=pattern):
             value = await r.get(key)
-            if value is None:
-                return jsonify({"error": "Key not found"}), 404
-            all_keys.append(jsonify({"key": key, "value": json.loads(value)})), 200
-        return all_keys
+            if value is not None:
+                results.append({"key": key, "value": json.loads(value)})
+        return jsonify(results), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
