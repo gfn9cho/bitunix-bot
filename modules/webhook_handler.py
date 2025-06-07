@@ -4,7 +4,7 @@ from datetime import datetime
 
 from quart import request, jsonify
 
-from modules.logger_config import logger, error_logger
+from modules.logger_config import logger, error_logger, setup_asset_logging
 from modules.loss_tracking import is_daily_loss_limit_exceeded
 from modules.price_feed import validate_and_process_signal
 # from modules.postgres_state_manager import get_or_create_symbol_direction_state, update_position_state
@@ -26,6 +26,7 @@ async def clear_buffered_loss_keys(symbol: str, direction: str):
 
 
 async def webhook_handler(symbol):
+    setup_asset_logging(symbol.upper())
     raw_data = await request.get_data(as_text=True)
     logger.info(f"Raw webhook data: {raw_data}")
     logger.info(f"Request headers: {dict(request.headers)}")
