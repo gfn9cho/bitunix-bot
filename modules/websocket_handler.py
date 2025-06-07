@@ -168,10 +168,16 @@ async def handle_ws_message(message):
                         logger.info(
                             f"[INITIAL TP/SL NOT SET FOR]: {symbol} {direction} TP{i} {tp_price}, tpQty: {tp_qty}")
 
+                pending_qty = state.get("pending_qty", 0)
+                logger.info(
+                    f"[POSITION OPEN] old_qty={old_qty} new_qty={new_qty} pending_qty={pending_qty}"
+                )
+                state["total_qty"] = new_qty
+                state["pending_qty"] = 0
                 await update_position_state(symbol, direction, position_id, state)
 
             # New logic: if position qty increases after step > 0, update TP/SL
-            if position_event == "UPDATE" and new_qty > old_qty > 0:
+            if position_event == "UPDATE" and new_qty > old_qty:
                 tp_acc_zone_id = state.get("tp_acc_zone_id")
                 trade_action = state.get("trade_action").lower()
                 order_type = state.get("order_type", "market")
@@ -205,6 +211,12 @@ async def handle_ws_message(message):
                 sl_order_id = state.get("sl_order_id")
                 sl_price = state["stop_loss"]
                 await update_sl_price(sl_order_id, direction, symbol, sl_price, new_qty)
+                pending_qty = state.get("pending_qty", 0)
+                logger.info(
+                    f"[POSITION UPDATE] old_qty={old_qty} new_qty={new_qty} pending_qty={pending_qty}"
+                )
+                state["total_qty"] = new_qty
+                state["pending_qty"] = 0
                 await update_position_state(symbol, direction, position_id, state)
             if position_event == "CLOSE" and new_qty == 0:
                 state = await get_or_create_symbol_direction_state(symbol, direction, position_id)
