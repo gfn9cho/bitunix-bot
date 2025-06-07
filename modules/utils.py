@@ -339,10 +339,48 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
         return None
 
 
+async def reduce_buffer_loss(symbol: str, direction: str, profit: float) -> None:
+    """Apply realized profit to buffered losses for the symbol/direction."""
+    pattern = f"reverse_loss:{symbol}:{direction}:*"
+    r = get_redis()
+    entries = []
+    async for key in r.scan_iter(match=pattern):
+        raw = await r.get(key)
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+            entries.append((key, data))
+        except Exception:
+            continue
+
+    # Sort by closed_at so older losses are reduced first
+    entries.sort(key=lambda x: x[1].get("closed_at", ""))
+    remaining = profit
+    for key, data in entries:
+        if remaining <= 0:
+            break
+        loss_val = float(data.get("pnl", 0))
+        qty = float(data.get("qty", 0))
+        if loss_val >= 0:
+            continue
+        updated = loss_val + remaining
+        if updated >= 0:
+            await r.delete(key)
+            remaining = updated
+        else:
+            data["pnl"] = updated
+            if loss_val != 0:
+                data["qty"] = qty * abs(updated) / abs(loss_val)
+            await r.set(key, json.dumps(data))
+            remaining = 0
+
+
 async def get_total_buffered_loss(symbol: str, direction: str) -> float:
-    """Return the total remaining quantity buffered for reversal."""
     pattern = f"reverse_loss:{symbol}:{direction}:*"
     total_qty = 0.0
+    net_pnl = 0.0
+    keys = []
     r = get_redis()
     async for key in r.scan_iter(match=pattern):
         value = await r.get(key)
@@ -350,9 +388,19 @@ async def get_total_buffered_loss(symbol: str, direction: str) -> float:
             try:
                 data = json.loads(value)
                 qty = float(data.get("qty", 0))
-                total_qty += qty
+                pnl = float(data.get("pnl", 0))
+                net_pnl += pnl
+                if pnl < 0:
+                    total_qty += qty
+                keys.append(key)
             except Exception as e:
                 print(f"[REDIS ERROR] Failed to parse buffer for {key}: {e}")
+
+    if net_pnl >= 0:
+        for key in keys:
+            await r.delete(key)
+        return 0.0
+
     return total_qty
 
 
