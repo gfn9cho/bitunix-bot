@@ -169,8 +169,14 @@ async def handle_ws_message(message):
                             f"[INITIAL TP/SL NOT SET FOR]: {symbol} {direction} TP{i} {tp_price}, tpQty: {tp_qty}")
 
                 pending_qty = state.get("pending_qty", 0)
+                ws_extra = {
+                    "symbol": symbol,
+                    "direction": direction,
+                    "interval": state.get("interval", "")
+                }
                 logger.info(
-                    f"[POSITION OPEN] old_qty={old_qty} new_qty={new_qty} pending_qty={pending_qty}"
+                    f"[POSITION OPEN] old_qty={old_qty} new_qty={new_qty} pending_qty={pending_qty}",
+                    extra=ws_extra,
                 )
                 state["total_qty"] = new_qty
                 state["pending_qty"] = 0
@@ -183,7 +189,10 @@ async def handle_ws_message(message):
                 order_type = state.get("order_type", "market")
                 revised_qty = state.get("revised_qty", 0)
                 acc_qty = new_qty - revised_qty
-                logger.info(f"[POSITION UPDATE]: trade_action: {trade_action} limit_order_length: {order_type}")
+                logger.info(
+                    f"[POSITION UPDATE] {symbol} {direction} action={trade_action} order_type={order_type}",
+                    extra={"symbol": symbol, "direction": direction, "interval": state.get("interval", "")},
+                )
                 if order_type == "market":
                     for tp_label, order_id in state["tp_orders"].items():
                         step_index = int(tp_label.replace("TP", "")) - 1
@@ -213,7 +222,8 @@ async def handle_ws_message(message):
                 await update_sl_price(sl_order_id, direction, symbol, sl_price, new_qty)
                 pending_qty = state.get("pending_qty", 0)
                 logger.info(
-                    f"[POSITION UPDATE] old_qty={old_qty} new_qty={new_qty} pending_qty={pending_qty}"
+                    f"[POSITION UPDATE] old_qty={old_qty} new_qty={new_qty} pending_qty={pending_qty}",
+                    extra=ws_extra,
                 )
                 state["total_qty"] = new_qty
                 state["pending_qty"] = 0
@@ -239,10 +249,14 @@ async def handle_ws_message(message):
 
                     await r.set(buffer_key, json.dumps(buffer_value))
                     logger.info(
-                        f"[BUFFERED POSITION CLOSE] {symbol}-{direction} qty={buffer_value['qty']} pnl={buffer_value['pnl']} interval={interval}"
+                        f"[BUFFERED POSITION CLOSE] {symbol}-{direction} qty={buffer_value['qty']} pnl={buffer_value['pnl']} interval={interval}",
+                        extra={"symbol": symbol, "direction": direction, "interval": interval},
                     )
                 except Exception as log_pnl_error:
-                    logger.info(f"[REVERSAL LOSS BUFFER ERROR]: {log_pnl_error}")
+                    logger.info(
+                        f"[REVERSAL LOSS BUFFER ERROR]: {log_pnl_error}",
+                        extra={"symbol": symbol, "direction": direction, "interval": interval},
+                    )
 
                 try:
                     await cancel_all_new_orders(symbol, direction)
@@ -260,7 +274,10 @@ async def handle_ws_message(message):
                         log_date,
                     )
                 except Exception as cancel_err:
-                    logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
+                    logger.error(
+                        f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}",
+                        extra={"symbol": symbol, "direction": direction, "interval": interval},
+                    )
         elif topic == "tpsl":
             # This flow handles only take profit event.
             try:
@@ -278,23 +295,35 @@ async def handle_ws_message(message):
                     state = await get_or_create_symbol_direction_state(symbol, position_direction, position_id=position_id)
                     interval = state.get("interval","15m")
                 except Exception as e:
-                    logger.info(f"[TP SL EVENT]: Position might closed for {symbol} {position_direction}")
+                    logger.info(
+                        f"[TP SL EVENT] Position might closed for {symbol} {position_direction}",
+                        extra={"symbol": symbol, "direction": position_direction, "interval": interval},
+                    )
                     return
                 if event != "CLOSE" or status != "FILLED" or tp_qty is None:
                     # logger.info(f"[TP/SL EVENT SKIPPED] Ignored event: {tp_data} with status: {status}")
                     return
                 else:
-                    logger.info(f"[TP/SL EVENT] Processing event: {tp_data} with status: {status}")
+                    logger.info(
+                        f"[TP/SL EVENT] Processing event: {tp_data} with status: {status}",
+                        extra={"symbol": symbol, "direction": position_direction, "interval": interval},
+                    )
                 tp_acc_zone_id = state.get("tp_acc_zone_id")
                 if tp_acc_zone_id and tp_acc_zone_id != "":
                     try:
                         await cancel_all_new_orders(symbol, position_direction)
-                        logger.info(f"[TP ACC EVENT] Canceled limit order: {tp_data} with status: {status}")
+                        logger.info(
+                            f"[TP ACC EVENT] Canceled limit order: {tp_data} with status: {status}",
+                            extra={"symbol": symbol, "direction": position_direction, "interval": interval},
+                        )
                         state["tp_acc_zone_id"] = ""
                         await update_position_state(symbol, position_direction, position_id, state)
                         return
                     except Exception as cancel_err:
-                        logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
+                        logger.error(
+                            f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}",
+                            extra={"symbol": symbol, "direction": position_direction, "interval": interval},
+                        )
                 tps = state.get("tps", [])
                 step = state.get("step", 0)
                 try:
@@ -314,13 +343,19 @@ async def handle_ws_message(message):
                         buffer_value["pnl"] += loss_value
                         buffer_value["closed_at"] = datetime.utcnow().isoformat()
                         await r.set(buffer_key, json.dumps(buffer_value))
-                        logger.info(f"[BUFFERED SL CLOSE] {symbol}-{tp_direction} qty={buffer_value['qty']} pnl={buffer_value['pnl']} interval={interval}")
+                        logger.info(
+                            f"[BUFFERED SL CLOSE] {symbol}-{tp_direction} qty={buffer_value['qty']} pnl={buffer_value['pnl']} interval={interval}",
+                            extra={"symbol": symbol, "direction": tp_direction, "interval": interval},
+                        )
                     else:
                         tp_price = float(tps[step]) if step < len(tps) else entry_price
                         profit_value = abs(tp_price - entry_price) * float(tp_qty)
                         await reduce_buffer_loss(symbol, tp_direction, profit_value)
                 except Exception as log_pnl_error:
-                    logger.info(f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}")
+                    logger.info(
+                        f"[CLOSE POSITION ALL PNL TRIGGERED]: {log_pnl_error}",
+                        extra={"symbol": symbol, "direction": tp_direction, "interval": interval},
+                    )
                 # logger.info(f"[TPSL EVENT]: {tp_data}")
 
                 tps = state.get("tps", [])
@@ -332,7 +367,10 @@ async def handle_ws_message(message):
                 new_qty = round(old_qty - triggered_qty, 3)
                 trigger_price = float(tps[step])
                 entry = float(state.get("entry_price", 0))
-                logger.info(f"[TP SL INFO]:{state}")
+                logger.info(
+                    f"[TP SL INFO]:{state}",
+                    extra={"symbol": symbol, "direction": position_direction, "interval": interval},
+                )
 
                 try:
                     if step == 0 and entry != 0:
@@ -343,22 +381,37 @@ async def handle_ws_message(message):
                     else:
                         new_sl = tps[step - 1]
                 except Exception as e:
-                    logger.info(f"[TP LEVEL 1 Beakeven calculation error]")
+                    logger.info(
+                        f"[TP LEVEL 1 Beakeven calculation error]",
+                        extra={"symbol": symbol, "direction": position_direction, "interval": interval},
+                    )
                     new_sl = float(state.get("entry_price")) if step == 0 else tps[max(step - 1, 0)]
 
-                logger.info(f"[BREAKEVEN SL] {symbol} {position_direction} step={step} → SL={new_sl}")
+                logger.info(
+                    f"[BREAKEVEN SL] {symbol} {position_direction} step={step} → SL={new_sl}",
+                    extra={"symbol": symbol, "direction": position_direction, "interval": interval},
+                )
 
                 if step == 0:
                     try:
                         await cancel_all_new_orders(symbol, position_direction)
                     except Exception as cancel_err:
-                        logger.error(f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}")
+                        logger.error(
+                            f"[CANCEL LIMIT ORDERS FAILED] {cancel_err}",
+                            extra={"symbol": symbol, "direction": position_direction, "interval": interval},
+                        )
                 order_id = state.get("sl_order_id")
                 await update_sl_price(order_id, position_direction, symbol, new_sl, new_qty)
                 state["step"] = next_step
                 # state["total_qty"] = new_qty
                 await update_position_state(symbol, position_direction, position_id, state)
             except Exception as e:
-                logger.error(f"[TP_SL CHANNEL ERROR] {e}")
+                logger.error(
+                    f"[TP_SL CHANNEL ERROR] {e}",
+                    extra={"symbol": symbol, "direction": position_direction, "interval": interval},
+                )
     except Exception as e:
-        logger.error(f"WebSocket message handler error: {str(e)}")
+        logger.error(
+            f"WebSocket message handler error: {str(e)}",
+            extra={"symbol": symbol if 'symbol' in locals() else None},
+        )

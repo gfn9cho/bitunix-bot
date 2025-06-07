@@ -9,11 +9,20 @@ import time
 from datetime import datetime
 
 from modules.config import API_KEY, API_SECRET, BASE_URL
-from modules.logger_config import logger
+from modules.logger_config import logger, setup_asset_logging
 # from modules.postgres_state_manager import update_position_state, get_or_create_symbol_direction_state
 from modules.redis_state_manager import get_or_create_symbol_direction_state, update_position_state, delete_position_state
 from modules.redis_client import get_redis
 from typing import Optional
+
+
+def _log_extra(symbol: str, direction: Optional[str] = None, interval: Optional[str] = None) -> dict:
+    extra = {"symbol": symbol}
+    if direction:
+        extra["direction"] = direction
+    if interval:
+        extra["interval"] = interval
+    return extra
 
 
 def get_today():
@@ -59,6 +68,8 @@ async def is_valid_tp_price(direction: str, tp_price: float,
 async def safe_submit_sl_update(symbol: str, direction: str, sl_payload: dict, sl_price: float, retries: int = 3,
                                 retry_delay: int = 2) -> bool:
     from modules.price_feed import get_latest_mark_price
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol, direction)
     for attempt in range(retries):
         try:
             mark_price = await get_latest_mark_price(symbol)
@@ -66,27 +77,41 @@ async def safe_submit_sl_update(symbol: str, direction: str, sl_payload: dict, s
                 raise ValueError("Mark price unavailable")
 
             if await is_valid_sl_price(direction, sl_price, mark_price):
-                logger.info(f"[SL ✅] Submitting SL {sl_price} (mark: {mark_price}) for {symbol} {direction}")
+                logger.info(
+                    f"[SL ✅] Submitting SL {sl_price} (mark: {mark_price}) for {symbol} {direction}",
+                    extra=log_extra,
+                )
                 await submit_modified_tp_sl_order_async(sl_payload)
                 return True
             else:
                 buffer_pct = 0.001
                 adjusted_sl = mark_price * (1 + buffer_pct) if direction == "BUY" else mark_price * (1 - buffer_pct)
                 sl_payload["slPrice"] = str(round(adjusted_sl, 6))
-                logger.warning(f"[TP ❌] Adjusting SL to {adjusted_sl} due to invalid original value")
+                logger.warning(
+                    f"[TP ❌] Adjusting SL to {adjusted_sl} due to invalid original value",
+                    extra=log_extra,
+                )
                 await submit_modified_tp_sl_order_async(sl_payload)
                 return True
         except Exception as e:
-            logger.error(f"[SL ERROR] Retry {attempt + 1} for {symbol} {direction}: {e}")
+            logger.error(
+                f"[SL ERROR] Retry {attempt + 1} for {symbol} {direction}: {e}",
+                extra=log_extra,
+            )
             await asyncio.sleep(retry_delay)
 
-    logger.error(f"[SL FAILED] Giving up SL update for {symbol} {direction} after {retries} retries.")
+    logger.error(
+        f"[SL FAILED] Giving up SL update for {symbol} {direction} after {retries} retries.",
+        extra=log_extra,
+    )
     return False
 
 
 async def safe_submit_tp_update(symbol: str, direction: str, tp_payload: dict, tp_price: float, retries: int = 3,
                                 retry_delay: int = 2) -> bool:
     from modules.price_feed import get_latest_mark_price
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol, direction)
     for attempt in range(retries):
         try:
             mark_price = await get_latest_mark_price(symbol)
@@ -94,25 +119,41 @@ async def safe_submit_tp_update(symbol: str, direction: str, tp_payload: dict, t
                 raise ValueError("Mark price unavailable")
 
             if await is_valid_tp_price(direction, tp_price, mark_price):
-                logger.info(f"[TP ✅] Submitting TP {tp_price} (mark: {mark_price}) for {symbol} {direction}")
+                logger.info(
+                    f"[TP ✅] Submitting TP {tp_price} (mark: {mark_price}) for {symbol} {direction}",
+                    extra=log_extra,
+                )
                 await submit_modified_tp_sl_order_async(tp_payload)
                 return True
             else:
                 buffer_pct = 0.001
                 adjusted_tp = mark_price * (1 + buffer_pct) if direction == "BUY" else mark_price * (1 - buffer_pct)
                 tp_payload["tpPrice"] = str(round(adjusted_tp, 6))
-                logger.warning(f"[TP ❌] Adjusting TP to {adjusted_tp} due to invalid original value")
+                logger.warning(
+                    f"[TP ❌] Adjusting TP to {adjusted_tp} due to invalid original value",
+                    extra=log_extra,
+                )
                 await submit_modified_tp_sl_order_async(tp_payload)
                 return True
         except Exception as e:
-            logger.error(f"[TP ERROR] Retry {attempt + 1} for {symbol} {direction}: {e}")
+            logger.error(
+                f"[TP ERROR] Retry {attempt + 1} for {symbol} {direction}: {e}",
+                extra=log_extra,
+            )
             await asyncio.sleep(retry_delay)
 
-    logger.error(f"[TP FAILED] Giving up TP update for {symbol} {direction} after {retries} retries.")
+    logger.error(
+        f"[TP FAILED] Giving up TP update for {symbol} {direction} after {retries} retries.",
+        extra=log_extra,
+    )
     return False
 
 
 async def submit_modified_tp_sl_order_async(order_data):
+    symbol = order_data.get("symbol")
+    if symbol:
+        setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol) if symbol else None
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
@@ -135,18 +176,32 @@ async def submit_modified_tp_sl_order_async(order_data):
             response = await client.post(f"{BASE_URL}/api/v1/futures/tpsl/modify_order", headers=headers,
                                          content=body_json)
             response.raise_for_status()
-            logger.info(f"[TP/SL MODIFY SUCCESS] {body_json}")
-            logger.info(f"[TP/SL MODIFY SUCCESS] {response.json()}")
+            logger.info(
+                f"[TP/SL MODIFY SUCCESS] {body_json}",
+                extra=log_extra,
+            )
+            logger.info(
+                f"[TP/SL MODIFY SUCCESS] {response.json()}",
+                extra=log_extra,
+            )
             return response.json()
 
     except httpx.RequestError as e:
-        logger.error(f"[TP/SL MODIFY SUCCESS] {e}")
+        logger.error(
+            f"[TP/SL MODIFY SUCCESS] {e}",
+            extra=log_extra,
+        )
         if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
-            logger.error(f"[TP/SL MODIFY SUCCESS] Response: {e.response.text}")
+            logger.error(
+                f"[TP/SL MODIFY SUCCESS] Response: {e.response.text}",
+                extra=log_extra,
+            )
         return None
 
 
 async def update_tp_quantity(order_id: str, symbol: str, new_tp_qty: float, new_tp_price: float):
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol)
     payload = {
         "symbol": symbol,
         "orderId": order_id,
@@ -156,11 +211,16 @@ async def update_tp_quantity(order_id: str, symbol: str, new_tp_qty: float, new_
         "tpPrice": str(new_tp_price)
     }
 
-    logger.info(f"[MODIFY TP QTY] {symbol} orderId={order_id} new_tp_qty={new_tp_qty}")
+    logger.info(
+        f"[MODIFY TP QTY] {symbol} orderId={order_id} new_tp_qty={new_tp_qty}",
+        extra=log_extra,
+    )
     await submit_modified_tp_sl_order_async(payload)
 
 
 async def update_sl_price(order_id: str, direction: str, symbol: str, new_sl_price: float, sl_qty: float):
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol, direction)
     payload = {
         "symbol": symbol,
         "orderId": order_id,
@@ -170,11 +230,16 @@ async def update_sl_price(order_id: str, direction: str, symbol: str, new_sl_pri
         "slStopType": "MARK_PRICE"
     }
 
-    logger.info(f"[MODIFY SL] {symbol} orderId={order_id} new_sl_price={new_sl_price}")
+    logger.info(
+        f"[MODIFY SL] {symbol} orderId={order_id} new_sl_price={new_sl_price}",
+        extra=log_extra,
+    )
     await safe_submit_sl_update(symbol, direction, payload, new_sl_price)
 
 
 async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, position_id, tp_qty, sl_qty):
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol, direction)
     url = f"{BASE_URL}/api/v1/futures/tpsl/get_pending_orders"
     random_bytes = secrets.token_bytes(32)
     nonce = base64.b64encode(random_bytes).decode('utf-8')
@@ -200,16 +265,25 @@ async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, positi
                 response.raise_for_status()
                 response_data = response.json()
         except httpx.RequestError as e:
-            logger.error(f"[PENDING TP/SL ORDERS] {e}")
+            logger.error(
+                f"[PENDING TP/SL ORDERS] {e}",
+                extra=log_extra,
+            )
             if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
-                logger.error(f"[PENDING TP/SL ORDERS] Response: {e.response.text}")
+                logger.error(
+                    f"[PENDING TP/SL ORDERS] Response: {e.response.text}",
+                    extra=log_extra,
+                )
             return None
 
         orders = response_data.get("data", {})
-        logger.info(f"[PENDING TP/SL ORDERS]: {response_data}")
+        logger.info(f"[PENDING TP/SL ORDERS]: {response_data}", extra=log_extra)
 
         if not orders:
-            logger.warning(f"[MODIFY TP/SL] No pending TP/SL orders found for {symbol} position {position_id}")
+            logger.warning(
+                f"[MODIFY TP/SL] No pending TP/SL orders found for {symbol} position {position_id}",
+                extra=log_extra,
+            )
             return
 
         sl_orders = None
@@ -258,30 +332,44 @@ async def modify_tp_sl_order_async(direction, symbol, tp_price, sl_price, positi
                     }
                 }
 
-        logger.info(f"[MODIFY ORDER] {sl_orders} {tp_orders}")
+        logger.info(f"[MODIFY ORDER] {sl_orders} {tp_orders}", extra=log_extra)
         if pending_orders_length == 1:
             success = await safe_submit_sl_update(symbol, direction, sl_orders["data"],
                                                   float(sl_orders["data"]["slPrice"]))
             if not success:
-                logger.warning(f"[SL WARNING] Take Profit update failed for {symbol} {direction}")
+                logger.warning(
+                    f"[SL WARNING] Take Profit update failed for {symbol} {direction}",
+                    extra=log_extra,
+                )
         else:
             if sl_orders:
                 success = await safe_submit_sl_update(symbol, direction, sl_orders["data"],
                                                       float(sl_orders["data"]["slPrice"]))
                 if not success:
-                    logger.warning(f"[SL WARNING] Take Profit SL update failed for {symbol} {direction}")
+                    logger.warning(
+                        f"[SL WARNING] Take Profit SL update failed for {symbol} {direction}",
+                        extra=log_extra,
+                    )
 
             if tp_orders:
                 success = await safe_submit_tp_update(symbol, direction, tp_orders["data"],
                                                       float(tp_orders["data"]["tpPrice"]))
                 if not success:
-                    logger.warning(f"[TP WARNING] Take Profit TP update failed for {symbol} {direction}")
+                    logger.warning(
+                        f"[TP WARNING] Take Profit TP update failed for {symbol} {direction}",
+                        extra=log_extra,
+                    )
 
     except Exception as e:
-        logger.error(f"[MODIFY TP/SL ERROR] Failed for {symbol} {direction}: {e}")
+        logger.error(
+            f"[MODIFY TP/SL ERROR] Failed for {symbol} {direction}: {e}",
+            extra=log_extra,
+        )
 
 
 async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qty, qty):
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol)
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
     if sl_price:
@@ -322,7 +410,10 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
             response = await client.post(f"{BASE_URL}/api/v1/futures/tpsl/place_order", headers=headers,
                                          content=body_json)
             response.raise_for_status()
-            logger.info(f"[TP/SL ORDER SUCCESS] {response.json()}")
+            logger.info(
+                f"[TP/SL ORDER SUCCESS] {response.json()}",
+                extra=log_extra,
+            )
             response_data = response.json().get("data")
 
             order_id = None
@@ -333,9 +424,9 @@ async def place_tp_sl_order_async(symbol, tp_price, sl_price, position_id, tp_qt
                 order_id = response_data.get("orderId")
             return order_id
     except httpx.RequestError as e:
-        logger.error(f"[ORDER FAILED] {e}")
+        logger.error(f"[ORDER FAILED] {e}", extra=log_extra)
         if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
-            logger.error(f"[ORDER FAILED] Response: {e.response.text}")
+            logger.error(f"[ORDER FAILED] Response: {e.response.text}", extra=log_extra)
         return None
 
 
@@ -454,6 +545,8 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
     Evaluates whether a reversal is needed based on multi-timeframe rank.
     Handles safe closure and state cleanup of opposite direction positions.
     """
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol, new_direction, new_interval)
     opposite_direction = "SELL" if new_direction == "BUY" else "BUY"
     existing_state = await get_or_create_symbol_direction_state(symbol, opposite_direction, '', True)
     same_direction_state = await get_or_create_symbol_direction_state(symbol, new_direction, '', False, True)
@@ -474,7 +567,10 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
         )
     # CASE 1: Cleanup stale state if it’s not OPEN
     else:
-        logger.info(f"[REVERSE BUFFER CHECK] No open {opposite_direction} position for {symbol}. Deleting stale state.")
+        logger.info(
+            f"[REVERSE BUFFER CHECK] No open {opposite_direction} position for {symbol}. Deleting stale state.",
+            extra=log_extra,
+        )
         await delete_position_state(symbol, opposite_direction, "")
         # Check for buffered reversal quantity
         # buffer_key = f"reverse_loss:{symbol}:{opposite_direction}:{new_interval}"
@@ -483,7 +579,10 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
         previous_loss_qty = await get_total_buffered_loss(symbol, new_direction)
         if previous_loss_qty:
             new_qty += previous_loss_qty
-        logger.info(f"[REVERSE BUFFER APPLIED] {symbol}-{new_direction} +{previous_loss_qty}")
+        logger.info(
+            f"[REVERSE BUFFER APPLIED] {symbol}-{new_direction} +{previous_loss_qty}",
+            extra=log_extra,
+        )
         # if buffer_raw:
         #     try:
         #         buffer_data = json.loads(buffer_raw)
@@ -500,7 +599,10 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
 
     # CASE 2: Reversal authorized
     if action == "reverse":
-        logger.info(f"[REVERSAL DETECTED] Closing {opposite_direction} position on {symbol} to open {new_direction}")
+        logger.info(
+            f"[REVERSAL DETECTED] Closing {opposite_direction} position on {symbol} to open {new_direction}",
+            extra=log_extra,
+        )
         try:
             if await flash_close_positions(symbol, position_id) == "failed":
                 await flash_close_positions(symbol, position_id)
@@ -509,17 +611,29 @@ async def evaluate_signal_received(symbol: str, new_direction: str, new_qty: flo
             total_qty = active_state["total_qty"] + new_qty
             return {"action": "reverse", "reverse_qty": round(total_qty, 3)}
         except Exception as e:
-            logger.error(f"[REVERSAL ERROR] Failed to close and flip position for {symbol}: {e}")
+            logger.error(
+                f"[REVERSAL ERROR] Failed to close and flip position for {symbol}: {e}",
+                extra=log_extra,
+            )
             total_qty = active_state["total_qty"] + new_qty
             return {"action": "reverse", "reverse_qty": round(total_qty, 3)}
     elif action == "open":
-        logger.info(f"[LOW INTERVAL SIGNAL] Opening {new_direction} position on {symbol} at interval {new_interval}")
+        logger.info(
+            f"[LOW INTERVAL SIGNAL] Opening {new_direction} position on {symbol} at interval {new_interval}",
+            extra=log_extra,
+        )
         return {"action": "open", "reverse_qty": new_qty}
     elif action == "upgrade":
-        logger.info(f"[LOW OR SAME INTERVAL SIGNAL] Upgrading {new_direction} position on {symbol} at interval {new_interval}")
+        logger.info(
+            f"[LOW OR SAME INTERVAL SIGNAL] Upgrading {new_direction} position on {symbol} at interval {new_interval}",
+            extra=log_extra,
+        )
         return {"action": "upgrade", "reverse_qty": 2 * new_qty}
     # CASE 3: Reversal NOT allowed — keep OPEN state intact and upgrade with new qty and price
-    logger.info(f"[REVERSE CHECK] No reversal permitted for {symbol}. Existing opposite position retained.")
+    logger.info(
+        f"[REVERSE CHECK] No reversal permitted for {symbol}. Existing opposite position retained.",
+        extra=log_extra,
+    )
     return {"action": "ignore", "reverse_qty": new_qty}
 
 
@@ -560,15 +674,23 @@ async def maybe_reverse_position(symbol: str, new_direction: str):
     """
     If an opposite position is open, closes it and opens a new one with doubled quantity.
     """
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol, new_direction)
     opposite_direction = "SELL" if new_direction == "BUY" else "BUY"
     existing_state = await get_or_create_symbol_direction_state(symbol, opposite_direction, '', True)
 
     if not existing_state or existing_state.get("status") != "OPEN":
-        logger.info(f"[REVERSE CHECK] No open {opposite_direction} position for {symbol}. Proceeding normally.")
+        logger.info(
+            f"[REVERSE CHECK] No open {opposite_direction} position for {symbol}. Proceeding normally.",
+            extra=log_extra,
+        )
         await delete_position_state(symbol, opposite_direction)
         return 0  # no reversal needed
 
-    logger.info(f"[REVERSAL DETECTED] Closing {opposite_direction} position on {symbol} to open {new_direction}")
+    logger.info(
+        f"[REVERSAL DETECTED] Closing {opposite_direction} position on {symbol} to open {new_direction}",
+        extra=log_extra,
+    )
 
     try:
         opposite_position_id = existing_state.get("position_id")
@@ -584,12 +706,17 @@ async def maybe_reverse_position(symbol: str, new_direction: str):
         return round(existing_state["total_qty"], 3)
 
     except Exception as e:
-        logger.error(f"[REVERSAL ERROR] Failed to close and flip position for {symbol}: {e}")
+        logger.error(
+            f"[REVERSAL ERROR] Failed to close and flip position for {symbol}: {e}",
+            extra=log_extra,
+        )
         return 0
 
 
 async def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20, tp=None, sl=None, private=True,
                       reduce_only=False):
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol, side)
     timestamp = str(int(time.time() * 1000))
     nonce = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
 
@@ -642,12 +769,12 @@ async def place_order(symbol, side, price, qty, order_type="LIMIT", leverage=20,
                 content=body_json
             )
             response.raise_for_status()
-            logger.info(f"[ORDER SUCCESS] {response.json()}")
+            logger.info(f"[ORDER SUCCESS] {response.json()}", extra=log_extra)
             return response.json()
     except httpx.RequestError as e:
-        logger.error(f"[ORDER FAILED] {e}")
+        logger.error(f"[ORDER FAILED] {e}", extra=log_extra)
         if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
-            logger.error(f"[ORDER FAILED] Response: {e.response.text}")
+            logger.error(f"[ORDER FAILED] Response: {e.response.text}", extra=log_extra)
         return None
 
 
@@ -690,26 +817,33 @@ def calculate_quantities(prices, direction):
 
 
 async def is_duplicate_signal(symbol, direction, buffer_secs=5):
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol, direction)
     r = get_redis()
     key = f"signal_lock:{symbol}:{direction}"
-    logger.info(f"[DUPLICATE SIGNAL]: {key}")
+    logger.info(f"[DUPLICATE SIGNAL]: {key}", extra=log_extra)
     current_ts = int(time.time())
-    logger.info(f"[DUPLICATE SIGNAL]: {current_ts}")
+    logger.info(f"[DUPLICATE SIGNAL]: {current_ts}", extra=log_extra)
 
     # Atomic set-if-not-exists with expiration
     try:
         was_set = await r.set(key, current_ts, nx=True, ex=buffer_secs)
     except Exception as e:
-        logger.error(f"[REDIS ERROR] Failed to check duplicate signal for {key}: {e}")
+        logger.error(
+            f"[REDIS ERROR] Failed to check duplicate signal for {key}: {e}",
+            extra=log_extra,
+        )
         return True  # fail-safe: treat it as duplicate to avoid bad order
-    logger.info(f"[DUPLICATE SIGNAL]: {was_set}")
+    logger.info(f"[DUPLICATE SIGNAL]: {was_set}", extra=log_extra)
     if not was_set:
-        logger.info(f"[DUPLICATE SIGNAL CONFIRMED]")
+        logger.info(f"[DUPLICATE SIGNAL CONFIRMED]", extra=log_extra)
         return True  # already locked
     return False
 
 
 async def close_all_positions(symbol):
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol)
     close_position_payload = {
         "symbol": symbol
     }
@@ -735,15 +869,20 @@ async def close_all_positions(symbol):
                 content=close_position_body
             )
             close_position_response.raise_for_status()
-            logger.info(f"[ORDER CANCEL SUCCESS] {symbol}: {close_position_response.json()}")
+            logger.info(
+                f"[ORDER CANCEL SUCCESS] {symbol}: {close_position_response.json()}",
+                extra=log_extra,
+            )
     except httpx.RequestError as e:
-        logger.error(f"[ORDER CANCEL FAILED] {e}")
+        logger.error(f"[ORDER CANCEL FAILED] {e}", extra=log_extra)
         if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
-            logger.error(f"[ORDER CANCEL FAILED] Response: {e.response.text}")
+            logger.error(f"[ORDER CANCEL FAILED] Response: {e.response.text}", extra=log_extra)
         return None
 
 
 async def flash_close_positions(symbol, position_id):
+    setup_asset_logging(symbol)
+    log_extra = _log_extra(symbol)
     close_position_payload = {
         "positionId": position_id
     }
@@ -770,15 +909,21 @@ async def flash_close_positions(symbol, position_id):
             )
             close_position_response.raise_for_status()
             if close_position_response.json().get("code") != 0:
-                logger.warning(f"[FLASH CLOSE IGNORED] {symbol} {position_id}: {close_position_response.json().get('msg')}")
+                logger.warning(
+                    f"[FLASH CLOSE IGNORED] {symbol} {position_id}: {close_position_response.json().get('msg')}",
+                    extra=log_extra,
+                )
                 return "failed"
             else:
-                logger.info(f"[FLASH CLOSE SUCCESS] {symbol} {position_id}: {close_position_response.json()}")
+                logger.info(
+                    f"[FLASH CLOSE SUCCESS] {symbol} {position_id}: {close_position_response.json()}",
+                    extra=log_extra,
+                )
                 return "success"
     except httpx.RequestError as e:
-        logger.error(f"[FLASH CLOSE FAILED] {e}")
+        logger.error(f"[FLASH CLOSE FAILED] {e}", extra=log_extra)
         if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
-            logger.error(f"[FLASH CLOSE FAILED] Response: {e.response.text}")
+            logger.error(f"[FLASH CLOSE FAILED] Response: {e.response.text}", extra=log_extra)
         return None
 
 
@@ -817,11 +962,13 @@ async def get_order_detail(order_id):
 
 async def cancel_all_new_orders(symbol, direction, context="tp"):
     try:
+        setup_asset_logging(symbol)
+        log_extra = _log_extra(symbol, direction)
         # Map direction to Bitunix side string
         side_map = {"BUY": "LONG", "SELL": "SHORT"}
         bitunix_side = side_map.get(direction.upper())
         if not bitunix_side:
-            logger.error(f"[CANCEL ORDERS] Invalid direction: {direction}")
+            logger.error(f"[CANCEL ORDERS] Invalid direction: {direction}", extra=log_extra)
             return
 
         # Step 1: Prepare authentication and GET headers
@@ -849,9 +996,9 @@ async def cancel_all_new_orders(symbol, direction, context="tp"):
                 response.raise_for_status()
                 orders = response.json().get("data", {}).get("orderList", [])
         except httpx.RequestError as e:
-            logger.error(f"[PENDING ORDER CAPTURE FAILED] {e}")
+            logger.error(f"[PENDING ORDER CAPTURE FAILED] {e}", extra=log_extra)
             if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
-                logger.error(f"[PENDING ORDER CAPTURE FAILED] Response: {e.response.text}")
+                logger.error(f"[PENDING ORDER CAPTURE FAILED] Response: {e.response.text}", extra=log_extra)
             return None
 
         # Filter orders based on context
@@ -870,7 +1017,7 @@ async def cancel_all_new_orders(symbol, direction, context="tp"):
             ]
 
         if not cancel_list:
-            logger.info(f"[CANCEL ORDERS] No orders to cancel for {symbol} ({context})")
+            logger.info(f"[CANCEL ORDERS] No orders to cancel for {symbol} ({context})", extra=log_extra)
             return
 
         cancel_payload = {
@@ -899,12 +1046,15 @@ async def cancel_all_new_orders(symbol, direction, context="tp"):
                     content=cancel_body
                 )
                 cancel_response.raise_for_status()
-                logger.info(f"[ORDER CANCEL SUCCESS] {symbol}: {cancel_list} {cancel_response.json()}")
+                logger.info(
+                    f"[ORDER CANCEL SUCCESS] {symbol}: {cancel_list} {cancel_response.json()}",
+                    extra=log_extra,
+                )
         except httpx.RequestError as e:
-            logger.error(f"[ORDER CANCEL FAILED] {e}")
+            logger.error(f"[ORDER CANCEL FAILED] {e}", extra=log_extra)
             if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
-                logger.error(f"[ORDER CANCEL FAILED] Response: {e.response.text}")
+                logger.error(f"[ORDER CANCEL FAILED] Response: {e.response.text}", extra=log_extra)
             return None
 
     except Exception as e:
-        logger.error(f"[CANCEL ORDERS FAILED] {symbol}: {e}")
+        logger.error(f"[CANCEL ORDERS FAILED] {symbol}: {e}", extra=log_extra)
